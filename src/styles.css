@@ -38,3 +38,52 @@ body {
 
 /* Focus rings */
 *:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+
+/* Smooth transitions on interactive elements */
+button, a, [role="button"] {
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
+}
+
+/* Selection color */
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+}
+
+/* Monospaced content polish */
+pre, code {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  -webkit-font-smoothing: auto;
+}
+
+/* Horizontal scrollbar for wide content */
+::-webkit-scrollbar:horizontal { height: 6px; }
+
+/* Ensure dark mode colors propagate to all input elements */
+input, textarea {
+  color: var(--text-primary);
+  caret-color: var(--accent);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Step connector animation */
+@keyframes stepPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Toast slide-up animation */
+@keyframes toastSlideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
