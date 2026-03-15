@@ -1,11 +1,12 @@
 import { useAppContext } from '../../lib/context';
 import { usePlaybooks } from '../../lib/hooks';
 import { PromptDetail } from './PromptDetail';
+import { NewPromptForm } from './NewPromptForm';
 import { PlaybookStepper } from '../playbook/PlaybookStepper';
 import { PlaybookBillboard } from '../playbook/PlaybookBillboard';
 
 export function DetailPanel() {
-  const { selectedPromptId, activeView, activePlaybookId, refreshCounter } =
+  const { selectedPromptId, activeView, activePlaybookId, refreshCounter, isCreating } =
     useAppContext();
   const { playbooks } = usePlaybooks(refreshCounter);
 
@@ -16,7 +17,9 @@ export function DetailPanel() {
       className="flex-1 min-w-[320px] overflow-hidden flex flex-col"
       style={{ background: 'var(--bg-secondary)' }}
     >
-      {showPlaybook && activePlaybookId ? (
+      {isCreating ? (
+        <NewPromptForm />
+      ) : showPlaybook && activePlaybookId ? (
         <PlaybookStepper playbookId={activePlaybookId} />
       ) : showPlaybook && playbooks.length === 0 ? (
         <PlaybookBillboard />

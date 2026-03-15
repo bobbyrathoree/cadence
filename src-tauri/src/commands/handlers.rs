@@ -1,3 +1,5 @@
+use tauri::Emitter;
+
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
 use crate::models::prompt::{
@@ -23,9 +25,12 @@ pub fn get_prompt(id: String, state: tauri::State<'_, AppState>) -> Result<Promp
 pub fn create_prompt(
     request: CreatePromptRequest,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<PromptWithVariants, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::create_prompt(&conn, request).map_err(|e| e.to_string())
+    let result = prompt_service::create_prompt(&conn, request).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -33,19 +38,24 @@ pub fn update_prompt(
     id: String,
     request: UpdatePromptRequest,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::update_prompt(&conn, &id, request).map_err(|e| e.to_string())
+    prompt_service::update_prompt(&conn, &id, request).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
-pub fn delete_prompt(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub fn delete_prompt(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::delete_prompt(&conn, &id).map_err(|e| e.to_string())
+    prompt_service::delete_prompt(&conn, &id).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_favorite(id: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
+pub fn toggle_favorite(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<bool, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
     // Get current favorite state
@@ -68,6 +78,7 @@ pub fn toggle_favorite(id: String, state: tauri::State<'_, AppState>) -> Result<
     };
 
     prompt_service::update_prompt(&conn, &id, req).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
 
     Ok(new_state)
 }
@@ -78,9 +89,12 @@ pub fn add_variant(
     label: String,
     content: String,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Variant, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::add_variant(&conn, &prompt_id, &label, &content).map_err(|e| e.to_string())
+    let result = prompt_service::add_variant(&conn, &prompt_id, &label, &content).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -89,15 +103,20 @@ pub fn update_variant(
     content: String,
     label: Option<String>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::update_variant(&conn, &id, &content, label.as_deref()).map_err(|e| e.to_string())
+    prompt_service::update_variant(&conn, &id, &content, label.as_deref()).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
-pub fn delete_variant(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub fn delete_variant(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::delete_variant(&conn, &id).map_err(|e| e.to_string())
+    prompt_service::delete_variant(&conn, &id).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -110,6 +129,7 @@ pub fn list_tags(state: tauri::State<'_, AppState>) -> Result<Vec<Tag>, String> 
 pub fn create_tag(
     request: CreateTagRequest,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Tag, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let tag = tag_service::get_or_create_tag(&conn, &request.name).map_err(|e| e.to_string())?;
@@ -120,11 +140,13 @@ pub fn create_tag(
             rusqlite::params![color, tag.id],
         )
         .map_err(|e| e.to_string())?;
+        let _ = app.emit("db-changed", ());
         return Ok(Tag {
             color: Some(color.clone()),
             ..tag
         });
     }
+    let _ = app.emit("db-changed", ());
     Ok(tag)
 }
 
@@ -133,9 +155,12 @@ pub fn add_tags_to_prompt(
     prompt_id: String,
     tags: Vec<String>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<Tag>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    tag_service::add_tags_to_prompt(&conn, &prompt_id, &tags).map_err(|e| e.to_string())
+    let result = tag_service::add_tags_to_prompt(&conn, &prompt_id, &tags).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -143,9 +168,12 @@ pub fn remove_tag_from_prompt(
     prompt_id: String,
     tag_id: String,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id).map_err(|e| e.to_string())
+    tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -158,9 +186,12 @@ pub fn list_collections(state: tauri::State<'_, AppState>) -> Result<Vec<Collect
 pub fn create_collection(
     request: CreateCollectionRequest,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Collection, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    collection_service::create_collection(&conn, request).map_err(|e| e.to_string())
+    let result = collection_service::create_collection(&conn, request).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -187,10 +218,13 @@ pub fn record_copy(
     prompt_id: String,
     variant_id: Option<String>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::record_copy(&conn, &prompt_id, variant_id.as_deref())
-        .map_err(|e| e.to_string())
+    let result = prompt_service::record_copy(&conn, &prompt_id, variant_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 // ------------------------------------------------------------------
@@ -217,10 +251,13 @@ pub fn create_playbook(
     title: String,
     description: Option<String>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Playbook, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    playbook_service::create_playbook(&conn, &title, description.as_deref())
-        .map_err(|e| e.to_string())
+    let result = playbook_service::create_playbook(&conn, &title, description.as_deref())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -231,9 +268,10 @@ pub fn add_playbook_step(
     instructions: Option<String>,
     choice_prompt_ids: Option<Vec<String>>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<PlaybookStep, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    playbook_service::add_step(
+    let result = playbook_service::add_step(
         &conn,
         &playbook_id,
         prompt_id.as_deref(),
@@ -241,7 +279,9 @@ pub fn add_playbook_step(
         instructions.as_deref(),
         choice_prompt_ids,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -256,21 +296,29 @@ pub fn get_playbook_session(
 pub fn start_playbook_session(
     playbook_id: String,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<PlaybookSession, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    playbook_service::start_session(&conn, &playbook_id).map_err(|e| e.to_string())
+    let result = playbook_service::start_session(&conn, &playbook_id).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn advance_playbook_step(
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<PlaybookSession, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    playbook_service::advance_step(&conn).map_err(|e| e.to_string())
+    let result = playbook_service::advance_step(&conn).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
-pub fn end_playbook_session(state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub fn end_playbook_session(state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    playbook_service::end_session(&conn).map_err(|e| e.to_string())
+    playbook_service::end_session(&conn).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }

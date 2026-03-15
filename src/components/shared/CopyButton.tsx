@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api } from '../../lib/api';
 
 interface Props {
@@ -16,8 +17,8 @@ export function CopyButton({ content, promptId, variantId, onCopy }: Props) {
     try {
       // Record the copy event (also returns content but we already have it)
       await api.prompts.recordCopy(promptId, variantId);
-      // Write to clipboard
-      await navigator.clipboard.writeText(content);
+      // Write to clipboard via Tauri plugin
+      await writeText(content);
 
       setCopied(true);
       if (timerRef.current) clearTimeout(timerRef.current);

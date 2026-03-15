@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppProvider, useAppContext } from './lib/context';
 import { api } from './lib/api';
 import { usePrompts } from './lib/hooks';
@@ -15,6 +17,10 @@ function AppContent() {
     setSelectedPromptId,
     refreshCounter,
     triggerRefresh,
+    isCreating,
+    setIsCreating,
+    isEditing,
+    setIsEditing,
   } = useAppContext();
 
   const { prompts } = usePrompts(activeView, activeCollectionId, refreshCounter);
@@ -54,10 +60,11 @@ function AppContent() {
         return;
       }
 
-      // Cmd+N: new prompt placeholder
+      // Cmd+N: new prompt
       if (meta && key === 'n') {
         e.preventDefault();
-        console.log('[Cadence] New prompt shortcut -- create flow not yet implemented');
+        setIsEditing(false);
+        setIsCreating(true);
         return;
       }
 
@@ -76,10 +83,12 @@ function AppContent() {
         return;
       }
 
-      // Cmd+E: toggle edit mode placeholder
+      // Cmd+E: toggle edit mode on selected prompt
       if (meta && key === 'e') {
         e.preventDefault();
-        console.log('[Cadence] Edit mode shortcut -- not yet implemented');
+        if (selectedPromptId && !isCreating) {
+          setIsEditing(!isEditing);
+        }
         return;
       }
 
@@ -119,7 +128,7 @@ function AppContent() {
             ) ?? prompt.variants[0];
 
             if (primaryVariant) {
-              await navigator.clipboard.writeText(primaryVariant.content);
+              await writeText(primaryVariant.content);
               await api.prompts.recordCopy(prompt.id, primaryVariant.id);
               showToast('Copied to clipboard');
               triggerRefresh();
@@ -138,7 +147,17 @@ function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPromptId, prompts, setSelectedPromptId, showToast, triggerRefresh]);
+  }, [selectedPromptId, prompts, setSelectedPromptId, showToast, triggerRefresh, isCreating, setIsCreating, isEditing, setIsEditing]);
+
+  // Listen for cross-window "db-changed" events from Tauri
+  useEffect(() => {
+    const unlisten = listen('db-changed', () => {
+      triggerRefresh();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [triggerRefresh]);
 
   return (
     <div

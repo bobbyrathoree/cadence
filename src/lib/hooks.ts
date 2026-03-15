@@ -74,6 +74,7 @@ export function usePrompts(
  */
 export function usePromptDetail(
   id: string | null,
+  refreshCounter?: number,
 ): { prompt: PromptWithVariants | null; loading: boolean } {
   const [prompt, setPrompt] = useState<PromptWithVariants | null>(null);
   const [loading, setLoading] = useState(false);
@@ -102,7 +103,7 @@ export function usePromptDetail(
       });
 
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, refreshCounter]);
 
   return { prompt, loading };
 }

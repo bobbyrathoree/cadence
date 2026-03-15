@@ -11,6 +11,8 @@ export function PromptList() {
     setSearchQuery,
     selectedPromptId,
     setSelectedPromptId,
+    setIsCreating,
+    setIsEditing,
   } = useAppContext();
 
   const { prompts, loading: promptsLoading } = usePrompts(
@@ -159,6 +161,10 @@ export function PromptList() {
             e.currentTarget.style.background = 'transparent';
           }}
           title="New Prompt"
+          onClick={() => {
+            setIsEditing(false);
+            setIsCreating(true);
+          }}
         >
           +
         </button>

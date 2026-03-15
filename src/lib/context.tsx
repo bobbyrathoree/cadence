@@ -22,6 +22,12 @@ export interface AppContextType {
   // Refresh trigger
   refreshCounter: number;
   triggerRefresh: () => void;
+
+  // Create / Edit modes
+  isCreating: boolean;
+  setIsCreating: (v: boolean) => void;
+  isEditing: boolean;
+  setIsEditing: (v: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -33,6 +39,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshCounter, setRefreshCounter] = useState(0);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const triggerRefresh = useCallback(() => {
     setRefreshCounter((c) => c + 1);
@@ -53,6 +61,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setSearchQuery,
         refreshCounter,
         triggerRefresh,
+        isCreating,
+        setIsCreating,
+        isEditing,
+        setIsEditing,
       }}
     >
       {children}
