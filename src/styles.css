@@ -26,4 +26,15 @@ body {
   margin: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* Thin scrollbars for macOS feel */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+/* Focus rings */
+*:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
