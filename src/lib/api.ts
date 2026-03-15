@@ -1,6 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import type * as T from './types';
 
+export async function safeInvoke<R>(cmd: string, args?: Record<string, unknown>): Promise<R> {
+  try {
+    return await invoke<R>(cmd, args);
+  } catch (err) {
+    throw new Error(typeof err === 'string' ? err : String(err));
+  }
+}
+
 export const api = {
   prompts: {
     list: () => invoke<T.PromptListItem[]>('list_prompts'),

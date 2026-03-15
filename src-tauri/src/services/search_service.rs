@@ -25,7 +25,7 @@ pub fn search_prompts(
         .replace('(', "")
         .replace(')', "")
         .replace('*', "")
-        .replace('+', "")
+        .replace('+', " ")
         .replace('-', " ")
         .replace(':', " ");
     let sanitized = sanitized.trim();

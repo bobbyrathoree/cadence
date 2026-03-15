@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { useAppContext } from '../../lib/context';
 import { PromptSlicer } from './PromptSlicer';
@@ -134,6 +134,20 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
     setMdFiles((prev) => prev.filter((_, i) => i !== index));
     setResult(null);
   }
+
+  // Escape key closes modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
