@@ -41,14 +41,17 @@ coverage/
 .playwright-cli/
 playwright-report/
 test-results/
+*.yaml
 
 # Superpowers / brainstorming artifacts
 .superpowers/
 docs/
 
-# Screenshots / mockups (generated during design)
+# Screenshots / mockups / test artifacts
 *.png
 !src-tauri/icons/*.png
+e2e-*
+*-snap.*
 
 # OS files
 .DS_Store
