@@ -18,6 +18,20 @@
         "height": 700,
         "minWidth": 800,
         "minHeight": 500
+      },
+      {
+        "label": "search",
+        "title": "Cadence Search",
+        "url": "search.html",
+        "width": 720,
+        "height": 500,
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "center": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false
       }
     ],
     "security": {

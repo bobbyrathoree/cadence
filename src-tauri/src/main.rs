@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod tray;
+
 use std::sync::{Arc, Mutex};
 
 use rand::Rng;
+use tauri::Manager;
 
 use cadence_lib::api;
 use cadence_lib::commands;
@@ -14,6 +17,21 @@ fn generate_api_key() -> String {
     let mut buf = [0u8; 8];
     rand::thread_rng().fill(&mut buf);
     format!("cad_{}", hex::encode(buf))
+}
+
+#[tauri::command]
+fn hide_search_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("search") {
+        let _ = window.hide();
+    }
+}
+
+#[tauri::command]
+fn show_search_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("search") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 fn main() {
@@ -37,6 +55,7 @@ fn main() {
     });
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::handlers::list_prompts,
@@ -65,8 +84,41 @@ fn main() {
             commands::handlers::start_playbook_session,
             commands::handlers::advance_playbook_step,
             commands::handlers::end_playbook_session,
+            hide_search_window,
+            show_search_window,
         ])
-        .setup(move |_app| {
+        .setup(move |app| {
+            let handle = app.handle().clone();
+
+            // Set up native tray menu
+            if let Err(e) = tray::setup_tray(&handle) {
+                eprintln!("Failed to setup tray: {}", e);
+            }
+
+            // Register global shortcut: Cmd+Shift+P to toggle search window
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+                let handle_for_shortcut = handle.clone();
+
+                app.global_shortcut()
+                    .on_shortcut("CommandOrControl+Shift+P", move |_app, _shortcut, event| {
+                        if event.state == ShortcutState::Pressed {
+                            if let Some(window) =
+                                handle_for_shortcut.get_webview_window("search")
+                            {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .expect("Failed to register global shortcut");
+            }
+
             // Spawn the axum API server in a background task
             tauri::async_runtime::spawn(async move {
                 api::server::start(api_state).await;
