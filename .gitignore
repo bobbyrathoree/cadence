@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+target/
+src-tauri/target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Playwright
+.playwright-cli/
+playwright-report/
+test-results/
+
+# Superpowers / brainstorming artifacts
+.superpowers/
+docs/
+
+# Screenshots / mockups (generated during design)
+*.png
+!src-tauri/icons/*.png
+
+# OS files
+.DS_Store
+.Spotlight-V100
+.Trashes
+
+# Rust
+**/*.rs.bk
+*.pdb
