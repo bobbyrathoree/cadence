@@ -57,6 +57,14 @@ fn main() {
             commands::handlers::get_collection_prompts,
             commands::handlers::search_prompts,
             commands::handlers::record_copy,
+            commands::handlers::list_playbooks,
+            commands::handlers::get_playbook,
+            commands::handlers::create_playbook,
+            commands::handlers::add_playbook_step,
+            commands::handlers::get_playbook_session,
+            commands::handlers::start_playbook_session,
+            commands::handlers::advance_playbook_step,
+            commands::handlers::end_playbook_session,
         ])
         .setup(move |_app| {
             // Spawn the axum API server in a background task

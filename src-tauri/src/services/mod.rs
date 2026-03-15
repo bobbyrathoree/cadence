@@ -4,3 +4,4 @@ pub mod prompt_service;
 pub mod tag_service;
 pub mod collection_service;
 pub mod search_service;
+pub mod playbook_service;

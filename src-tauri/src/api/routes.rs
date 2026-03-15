@@ -9,11 +9,12 @@ use std::sync::Arc;
 
 use super::server::ApiState;
 use crate::models::collection::{Collection, CreateCollectionRequest};
+use crate::models::playbook::{Playbook, PlaybookWithSteps};
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, prompt_service, search_service, tag_service};
+use crate::services::{collection_service, playbook_service, prompt_service, search_service, tag_service};
 
 // ------------------------------------------------------------------
 // Router
@@ -50,6 +51,15 @@ pub fn router() -> Router<Arc<ApiState>> {
         .route(
             "/api/v1/collections/{id}/prompts",
             get(get_collection_prompts).post(add_prompt_to_collection),
+        )
+        // Playbooks
+        .route(
+            "/api/v1/playbooks",
+            get(list_playbooks).post(create_playbook_route),
+        )
+        .route(
+            "/api/v1/playbooks/{id}",
+            get(get_playbook).delete(delete_playbook),
         )
         // Search
         .route("/api/v1/search", get(search))
@@ -330,4 +340,51 @@ async fn record_copy(
     let content =
         prompt_service::record_copy(&conn, &id, req.variant_id.as_deref()).map_err(internal_error)?;
     Ok(Json(RecordCopyResponse { content }))
+}
+
+// ------------------------------------------------------------------
+// Playbooks
+// ------------------------------------------------------------------
+
+async fn list_playbooks(
+    State(state): State<Arc<ApiState>>,
+) -> Result<Json<Vec<Playbook>>, (StatusCode, String)> {
+    let conn = state.db.lock().map_err(internal_error)?;
+    let playbooks = playbook_service::list_playbooks(&conn).map_err(internal_error)?;
+    Ok(Json(playbooks))
+}
+
+#[derive(Deserialize)]
+struct CreatePlaybookRequest {
+    title: String,
+    description: Option<String>,
+}
+
+async fn create_playbook_route(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<CreatePlaybookRequest>,
+) -> Result<Json<Playbook>, (StatusCode, String)> {
+    let conn = state.db.lock().map_err(internal_error)?;
+    let playbook =
+        playbook_service::create_playbook(&conn, &req.title, req.description.as_deref())
+            .map_err(internal_error)?;
+    Ok(Json(playbook))
+}
+
+async fn get_playbook(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+) -> Result<Json<PlaybookWithSteps>, (StatusCode, String)> {
+    let conn = state.db.lock().map_err(internal_error)?;
+    let result = playbook_service::get_playbook(&conn, &id).map_err(internal_error)?;
+    Ok(Json(result))
+}
+
+async fn delete_playbook(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    let conn = state.db.lock().map_err(internal_error)?;
+    playbook_service::delete_playbook(&conn, &id).map_err(internal_error)?;
+    Ok(Json(()))
 }

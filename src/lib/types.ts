@@ -70,3 +70,18 @@ export interface PlaybookStep {
   step_type: 'single' | 'choice';
   instructions: string | null;
 }
+
+export interface PlaybookWithSteps extends Playbook {
+  steps: PlaybookStepWithPrompt[];
+}
+
+export interface PlaybookStepWithPrompt extends PlaybookStep {
+  prompt?: PromptWithVariants;
+  choice_prompts?: PromptWithVariants[];
+}
+
+export interface PlaybookSession {
+  active_playbook_id: string | null;
+  current_step: number;
+  started_at: string | null;
+}

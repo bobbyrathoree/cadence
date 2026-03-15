@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::prompt::Prompt;
+use super::prompt::PromptWithVariants;
 
 /// A playbook record from the `playbooks` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +37,8 @@ pub struct PlaybookWithSteps {
 pub struct PlaybookStepWithPrompt {
     #[serde(flatten)]
     pub step: PlaybookStep,
-    pub prompt: Option<Prompt>,
-    pub choice_prompts: Option<Vec<Prompt>>,
+    pub prompt: Option<PromptWithVariants>,
+    pub choice_prompts: Option<Vec<PromptWithVariants>>,
 }
 
 /// The singleton session tracking playbook progress from `playbook_sessions`.

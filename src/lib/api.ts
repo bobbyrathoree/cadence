@@ -38,4 +38,18 @@ export const api = {
       invoke<T.PromptListItem[]>('get_collection_prompts', { collectionId }),
   },
   search: (query: string) => invoke<T.PromptListItem[]>('search_prompts', { query }),
+  playbooks: {
+    list: () => invoke<T.Playbook[]>('list_playbooks'),
+    get: (id: string) => invoke<T.PlaybookWithSteps>('get_playbook', { id }),
+    create: (title: string, description?: string) =>
+      invoke<T.Playbook>('create_playbook', { title, description }),
+    addStep: (playbookId: string, opts: { promptId?: string; stepType: string; instructions?: string; choicePromptIds?: string[] }) =>
+      invoke<T.PlaybookStep>('add_playbook_step', { playbookId, ...opts }),
+  },
+  session: {
+    get: () => invoke<T.PlaybookSession>('get_playbook_session'),
+    start: (playbookId: string) => invoke<T.PlaybookSession>('start_playbook_session', { playbookId }),
+    advance: () => invoke<T.PlaybookSession>('advance_playbook_step'),
+    end: () => invoke('end_playbook_session'),
+  },
 };

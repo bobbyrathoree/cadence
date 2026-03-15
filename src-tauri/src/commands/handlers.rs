@@ -1,9 +1,10 @@
 use crate::models::collection::{Collection, CreateCollectionRequest};
+use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, prompt_service, search_service, tag_service};
+use crate::services::{collection_service, playbook_service, prompt_service, search_service, tag_service};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -190,4 +191,86 @@ pub fn record_copy(
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     prompt_service::record_copy(&conn, &prompt_id, variant_id.as_deref())
         .map_err(|e| e.to_string())
+}
+
+// ------------------------------------------------------------------
+// Playbooks
+// ------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_playbooks(state: tauri::State<'_, AppState>) -> Result<Vec<Playbook>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::list_playbooks(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_playbook(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<PlaybookWithSteps, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::get_playbook(&conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_playbook(
+    title: String,
+    description: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Playbook, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::create_playbook(&conn, &title, description.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_playbook_step(
+    playbook_id: String,
+    prompt_id: Option<String>,
+    step_type: String,
+    instructions: Option<String>,
+    choice_prompt_ids: Option<Vec<String>>,
+    state: tauri::State<'_, AppState>,
+) -> Result<PlaybookStep, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::add_step(
+        &conn,
+        &playbook_id,
+        prompt_id.as_deref(),
+        &step_type,
+        instructions.as_deref(),
+        choice_prompt_ids,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_playbook_session(
+    state: tauri::State<'_, AppState>,
+) -> Result<PlaybookSession, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::get_session(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn start_playbook_session(
+    playbook_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<PlaybookSession, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::start_session(&conn, &playbook_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn advance_playbook_step(
+    state: tauri::State<'_, AppState>,
+) -> Result<PlaybookSession, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::advance_step(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn end_playbook_session(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    playbook_service::end_session(&conn).map_err(|e| e.to_string())
 }
