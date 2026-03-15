@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useAppContext } from '../../lib/context';
 import type { ActiveView } from '../../lib/context';
 import {
@@ -7,6 +8,7 @@ import {
   useTags,
   usePlaybookSession,
 } from '../../lib/hooks';
+import { api } from '../../lib/api';
 import { CollectionItem } from './CollectionItem';
 
 /* ------------------------------------------------------------------ */
@@ -105,6 +107,26 @@ function ColorDot({ color }: { color?: string | null }) {
 /*  Main Sidebar                                                       */
 /* ------------------------------------------------------------------ */
 
+function ImportIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 2v8" />
+      <path d="M5 7l3 3 3-3" />
+      <path d="M2 12v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1" />
+    </svg>
+  );
+}
+
+function ExportIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 10V2" />
+      <path d="M5 5l3-3 3 3" />
+      <path d="M2 12v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1" />
+    </svg>
+  );
+}
+
 export function Sidebar() {
   const {
     activeView,
@@ -114,7 +136,10 @@ export function Sidebar() {
     activePlaybookId,
     setActivePlaybookId,
     refreshCounter,
+    setIsImportOpen,
   } = useAppContext();
+
+  const [exporting, setExporting] = useState(false);
 
   const { prompts } = usePrompts('all', null, refreshCounter);
   const { collections } = useCollections(refreshCounter);
@@ -294,7 +319,7 @@ export function Sidebar() {
       </div>
 
       {/* Tags */}
-      <div className="px-2 mt-auto pb-3">
+      <div className="px-2 mt-auto">
         <SectionHeader>Tags</SectionHeader>
         {tags.length === 0 ? (
           <div
@@ -322,6 +347,87 @@ export function Sidebar() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Import / Export */}
+      <div
+        className="flex-shrink-0 px-2 pb-3 pt-2"
+        style={{ borderTop: '1px solid var(--border)', marginTop: 8 }}
+      >
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setIsImportOpen(true)}
+            className="flex items-center justify-center gap-1.5 flex-1 rounded-md cursor-default"
+            style={{
+              padding: '6px 0',
+              fontSize: '11px',
+              fontWeight: 500,
+              color: 'var(--text-secondary)',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'color-mix(in srgb, var(--text-secondary) 10%, transparent)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+          >
+            <ImportIcon />
+            Import
+          </button>
+          <button
+            onClick={async () => {
+              if (exporting) return;
+              setExporting(true);
+              try {
+                const jsonStr = await api.importExport.exportJson();
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const date = new Date().toISOString().split('T')[0];
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `cadence-export-${date}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (err) {
+                console.error('Export failed:', err);
+              } finally {
+                setExporting(false);
+              }
+            }}
+            disabled={exporting}
+            className="flex items-center justify-center gap-1.5 flex-1 rounded-md cursor-default"
+            style={{
+              padding: '6px 0',
+              fontSize: '11px',
+              fontWeight: 500,
+              color: 'var(--text-secondary)',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              opacity: exporting ? 0.5 : 1,
+            }}
+            onMouseEnter={(e) => {
+              if (!exporting) {
+                e.currentTarget.style.background = 'color-mix(in srgb, var(--text-secondary) 10%, transparent)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+          >
+            <ExportIcon />
+            {exporting ? 'Exporting...' : 'Export'}
+          </button>
+        </div>
       </div>
     </aside>
   );

@@ -8,6 +8,7 @@ import { Sidebar } from './components/sidebar/Sidebar';
 import { PromptList } from './components/prompt-list/PromptList';
 import { DetailPanel } from './components/detail/DetailPanel';
 import { Toast } from './components/shared/Toast';
+import { ImportModal } from './components/import/ImportModal';
 
 function AppContent() {
   const {
@@ -21,6 +22,8 @@ function AppContent() {
     setIsCreating,
     isEditing,
     setIsEditing,
+    isImportOpen,
+    setIsImportOpen,
   } = useAppContext();
 
   const { prompts } = usePrompts(activeView, activeCollectionId, refreshCounter);
@@ -92,6 +95,13 @@ function AppContent() {
         return;
       }
 
+      // Cmd+I: open import modal
+      if (meta && key === 'i') {
+        e.preventDefault();
+        setIsImportOpen(true);
+        return;
+      }
+
       // Skip arrow / enter / escape when typing in inputs
       if (isInput) return;
 
@@ -147,7 +157,7 @@ function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPromptId, prompts, setSelectedPromptId, showToast, triggerRefresh, isCreating, setIsCreating, isEditing, setIsEditing]);
+  }, [selectedPromptId, prompts, setSelectedPromptId, showToast, triggerRefresh, isCreating, setIsCreating, isEditing, setIsEditing, setIsImportOpen]);
 
   // Listen for cross-window "db-changed" events from Tauri
   useEffect(() => {
@@ -168,6 +178,7 @@ function AppContent() {
       <PromptList />
       <DetailPanel />
       <Toast message={toast.message} visible={toast.visible} onHide={hideToast} />
+      <ImportModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
     </div>
   );
 }
