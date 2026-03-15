@@ -1,6 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -8,11 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::server::ApiState;
-use crate::models::collection::{Collection, CreateCollectionRequest};
-use crate::models::playbook::{Playbook, PlaybookWithSteps};
-use crate::models::prompt::{
-    CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
-};
+use crate::models::collection::CreateCollectionRequest;
+use crate::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use crate::models::tag::{CreateTagRequest, Tag};
 use crate::services::{collection_service, playbook_service, prompt_service, search_service, tag_service};
 
@@ -71,10 +69,6 @@ pub fn router() -> Router<Arc<ApiState>> {
 // Shared helpers
 // ------------------------------------------------------------------
 
-fn internal_error(e: impl std::fmt::Display) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-}
-
 // ------------------------------------------------------------------
 // Health
 // ------------------------------------------------------------------
@@ -103,49 +97,94 @@ struct ListPromptsQuery {
 async fn list_prompts(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<ListPromptsQuery>,
-) -> Result<Json<Vec<PromptListItem>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
+) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(100);
     let offset = params.offset.unwrap_or(0);
-    let items = prompt_service::list_prompts(&conn, limit, offset).map_err(internal_error)?;
-    Ok(Json(items))
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::list_prompts(&conn, limit, offset).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(items) => Json(items).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn create_prompt(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreatePromptRequest>,
-) -> Result<Json<PromptWithVariants>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let result = prompt_service::create_prompt(&conn, req).map_err(internal_error)?;
-    Ok(Json(result))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::create_prompt(&conn, req).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(prompt) => Json(prompt).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn get_prompt(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> Result<Json<PromptWithVariants>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let result = prompt_service::get_prompt_by_id(&conn, &id).map_err(internal_error)?;
-    Ok(Json(result))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::get_prompt_by_id(&conn, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(prompt) => Json(prompt).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn update_prompt(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
     Json(req): Json<UpdatePromptRequest>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    prompt_service::update_prompt(&conn, &id, req).map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::update_prompt(&conn, &id, req).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn delete_prompt(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    prompt_service::delete_prompt(&conn, &id).map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::delete_prompt(&conn, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------
@@ -162,11 +201,20 @@ async fn add_variant(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
     Json(req): Json<AddVariantRequest>,
-) -> Result<Json<Variant>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let variant =
-        prompt_service::add_variant(&conn, &id, &req.label, &req.content).map_err(internal_error)?;
-    Ok(Json(variant))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::add_variant(&conn, &id, &req.label, &req.content)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(variant) => Json(variant).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -179,20 +227,38 @@ async fn update_variant(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateVariantRequest>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    prompt_service::update_variant(&conn, &id, &req.content, req.label.as_deref())
-        .map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::update_variant(&conn, &id, &req.content, req.label.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn delete_variant(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    prompt_service::delete_variant(&conn, &id).map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::delete_variant(&conn, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------
@@ -201,31 +267,50 @@ async fn delete_variant(
 
 async fn list_tags(
     State(state): State<Arc<ApiState>>,
-) -> Result<Json<Vec<Tag>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let tags = tag_service::list_tags(&conn).map_err(internal_error)?;
-    Ok(Json(tags))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        tag_service::list_tags(&conn).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(tags) => Json(tags).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn create_tag(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTagRequest>,
-) -> Result<Json<Tag>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let tag = tag_service::get_or_create_tag(&conn, &req.name).map_err(internal_error)?;
-    // If a color was provided, update the tag
-    if let Some(ref color) = req.color {
-        conn.execute(
-            "UPDATE tags SET color = ?1 WHERE id = ?2",
-            rusqlite::params![color, tag.id],
-        )
-        .map_err(internal_error)?;
-        return Ok(Json(Tag {
-            color: Some(color.clone()),
-            ..tag
-        }));
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let tag = tag_service::get_or_create_tag(&conn, &req.name).map_err(|e| e.to_string())?;
+        // If a color was provided, update the tag
+        if let Some(ref color) = req.color {
+            conn.execute(
+                "UPDATE tags SET color = ?1 WHERE id = ?2",
+                rusqlite::params![color, tag.id],
+            )
+            .map_err(|e| e.to_string())?;
+            return Ok(Tag {
+                color: Some(color.clone()),
+                ..tag
+            });
+        }
+        Ok(tag)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(tag) => Json(tag).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     }
-    Ok(Json(tag))
 }
 
 #[derive(Deserialize)]
@@ -237,19 +322,38 @@ async fn add_tags_to_prompt(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
     Json(req): Json<AddTagsRequest>,
-) -> Result<Json<Vec<Tag>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let tags = tag_service::add_tags_to_prompt(&conn, &id, &req.tags).map_err(internal_error)?;
-    Ok(Json(tags))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        tag_service::add_tags_to_prompt(&conn, &id, &req.tags).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(tags) => Json(tags).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn remove_tag_from_prompt(
     State(state): State<Arc<ApiState>>,
     Path((prompt_id, tag_id)): Path<(String, String)>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id).map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------
@@ -258,29 +362,56 @@ async fn remove_tag_from_prompt(
 
 async fn list_collections(
     State(state): State<Arc<ApiState>>,
-) -> Result<Json<Vec<Collection>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let collections = collection_service::list_collections(&conn).map_err(internal_error)?;
-    Ok(Json(collections))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        collection_service::list_collections(&conn).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(collections) => Json(collections).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn create_collection(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateCollectionRequest>,
-) -> Result<Json<Collection>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let collection = collection_service::create_collection(&conn, req).map_err(internal_error)?;
-    Ok(Json(collection))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        collection_service::create_collection(&conn, req).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(collection) => Json(collection).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn get_collection_prompts(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> Result<Json<Vec<PromptListItem>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let items =
-        collection_service::get_collection_prompts(&conn, &id, 100, 0).map_err(internal_error)?;
-    Ok(Json(items))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        collection_service::get_collection_prompts(&conn, &id, 100, 0)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(items) => Json(items).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -292,11 +423,20 @@ async fn add_prompt_to_collection(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
     Json(req): Json<AddPromptToCollectionRequest>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    collection_service::add_prompt_to_collection(&conn, &id, &req.prompt_id)
-        .map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        collection_service::add_prompt_to_collection(&conn, &id, &req.prompt_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------
@@ -311,10 +451,19 @@ struct SearchQuery {
 async fn search(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<SearchQuery>,
-) -> Result<Json<Vec<PromptListItem>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let items = search_service::search_prompts(&conn, &params.q, 50).map_err(internal_error)?;
-    Ok(Json(items))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        search_service::search_prompts(&conn, &params.q, 50).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(items) => Json(items).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------
@@ -335,11 +484,20 @@ async fn record_copy(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
     Json(req): Json<RecordCopyRequest>,
-) -> Result<Json<RecordCopyResponse>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let content =
-        prompt_service::record_copy(&conn, &id, req.variant_id.as_deref()).map_err(internal_error)?;
-    Ok(Json(RecordCopyResponse { content }))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        prompt_service::record_copy(&conn, &id, req.variant_id.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(content) => Json(RecordCopyResponse { content }).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ------------------------------------------------------------------
@@ -348,10 +506,19 @@ async fn record_copy(
 
 async fn list_playbooks(
     State(state): State<Arc<ApiState>>,
-) -> Result<Json<Vec<Playbook>>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let playbooks = playbook_service::list_playbooks(&conn).map_err(internal_error)?;
-    Ok(Json(playbooks))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        playbook_service::list_playbooks(&conn).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(playbooks) => Json(playbooks).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -363,28 +530,54 @@ struct CreatePlaybookRequest {
 async fn create_playbook_route(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreatePlaybookRequest>,
-) -> Result<Json<Playbook>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let playbook =
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
         playbook_service::create_playbook(&conn, &req.title, req.description.as_deref())
-            .map_err(internal_error)?;
-    Ok(Json(playbook))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(playbook) => Json(playbook).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn get_playbook(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> Result<Json<PlaybookWithSteps>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    let result = playbook_service::get_playbook(&conn, &id).map_err(internal_error)?;
-    Ok(Json(result))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        playbook_service::get_playbook(&conn, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(playbook) => Json(playbook).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 async fn delete_playbook(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> Result<Json<()>, (StatusCode, String)> {
-    let conn = state.db.lock().map_err(internal_error)?;
-    playbook_service::delete_playbook(&conn, &id).map_err(internal_error)?;
-    Ok(Json(()))
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        playbook_service::delete_playbook(&conn, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(()) => Json(()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }

@@ -118,6 +118,12 @@ pub fn create_tables(conn: &Connection) -> rusqlite::Result<()> {
             FOREIGN KEY (active_playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
         );
 
+        -- FTS mapping: stable rowid for each prompt_id
+        CREATE TABLE IF NOT EXISTS fts_mapping (
+            rowid       INTEGER PRIMARY KEY AUTOINCREMENT,
+            prompt_id   TEXT NOT NULL UNIQUE
+        );
+
         -- FTS5 virtual table for full-text search (contentless)
         CREATE VIRTUAL TABLE IF NOT EXISTS prompts_fts USING fts5(
             title,

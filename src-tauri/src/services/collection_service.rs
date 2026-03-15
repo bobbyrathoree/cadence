@@ -155,6 +155,7 @@ fn get_manual_collection_prompts(
 }
 
 /// Get prompts for a smart collection by parsing the filter_query JSON.
+/// Builds parameterized queries to prevent SQL injection.
 ///
 /// filter_query format:
 /// ```json
@@ -195,6 +196,9 @@ fn get_smart_collection_prompts(
     let joiner = if match_mode == "any" { " OR " } else { " AND " };
 
     let mut where_clauses: Vec<String> = Vec::new();
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    // The first two positional params (?1, ?2) are reserved for LIMIT and OFFSET
+    let mut param_index: usize = 2;
 
     for condition in conditions {
         let field = condition["field"].as_str().unwrap_or("");
@@ -203,29 +207,33 @@ fn get_smart_collection_prompts(
         match (field, op) {
             ("tag", "includes") => {
                 if let Some(tag_value) = condition["value"].as_str() {
-                    // Escape single quotes in tag name to prevent SQL injection
-                    let escaped = tag_value.replace('\'', "''");
+                    param_index += 1;
                     where_clauses.push(format!(
-                        "EXISTS (SELECT 1 FROM prompt_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.prompt_id = p.id AND t.name = '{}')",
-                        escaped
+                        "EXISTS (SELECT 1 FROM prompt_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.prompt_id = p.id AND t.name = ?{})",
+                        param_index
                     ));
+                    param_values.push(Box::new(tag_value.to_string()));
                 }
             }
             ("is_favorite", "eq") => {
-                let val = if condition["value"].as_bool().unwrap_or(false) {
+                param_index += 1;
+                let val: i64 = if condition["value"].as_bool().unwrap_or(false) {
                     1
                 } else {
                     0
                 };
-                where_clauses.push(format!("p.is_favorite = {}", val));
+                where_clauses.push(format!("p.is_favorite = ?{}", param_index));
+                param_values.push(Box::new(val));
             }
             ("is_pinned", "eq") => {
-                let val = if condition["value"].as_bool().unwrap_or(false) {
+                param_index += 1;
+                let val: i64 = if condition["value"].as_bool().unwrap_or(false) {
                     1
                 } else {
                     0
                 };
-                where_clauses.push(format!("p.is_pinned = {}", val));
+                where_clauses.push(format!("p.is_pinned = ?{}", param_index));
+                param_values.push(Box::new(val));
             }
             _ => {
                 // Unknown condition, skip
@@ -253,7 +261,15 @@ fn get_smart_collection_prompts(
 
     let mut stmt = conn.prepare(&sql)?;
 
-    let rows = stmt.query_map(params![limit, offset], |row| {
+    // Build the full params list: [limit, offset, ...condition_values]
+    let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    all_params.push(Box::new(limit));
+    all_params.push(Box::new(offset));
+    all_params.extend(param_values);
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+
+    let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,

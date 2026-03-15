@@ -423,15 +423,8 @@ pub fn delete_variant(conn: &Connection, id: &str) -> rusqlite::Result<()> {
 }
 
 /// Rebuild the FTS5 index entry for a given prompt.
-/// Concatenates title + description + primary variant content + tag names.
-///
-/// For contentless FTS5 with `contentless_delete=1`, we use the special
-/// 'delete-all' command to remove all entries, then re-insert everything.
-/// Since we don't track individual rowids per prompt, we rebuild the entire index.
-///
-/// NOTE: For a production system at scale, you'd want a mapping table from
-/// prompt_id to FTS rowid. For this app's scale (personal prompt library),
-/// rebuilding the full index is acceptable.
+/// Uses the `fts_mapping` table to maintain a stable rowid for each prompt_id,
+/// avoiding the need for hashing and O(N) reverse lookups during search.
 pub fn update_fts_index(conn: &Connection, prompt_id: &str) -> rusqlite::Result<()> {
     // Gather the data for this prompt
     let prompt_data: rusqlite::Result<(String, Option<String>)> = conn.query_row(
@@ -462,36 +455,28 @@ pub fn update_fts_index(conn: &Connection, prompt_id: &str) -> rusqlite::Result<
     let tags = tag_service::get_tags_for_prompt(conn, prompt_id)?;
     let tag_names: String = tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(" ");
 
-    // For contentless FTS5 tables, we need to use a rebuild strategy.
-    // We'll use the 'rebuild' command which reconstructs the entire index,
-    // but since it's contentless, we need to delete and re-insert.
-    //
-    // Strategy: We use a numeric hash of prompt_id as rowid for deterministic mapping.
-    // This allows us to delete the old entry and insert a new one.
-    let rowid = prompt_id_to_rowid(prompt_id);
+    // Get or create a stable rowid via fts_mapping
+    conn.execute(
+        "INSERT OR IGNORE INTO fts_mapping (prompt_id) VALUES (?1)",
+        params![prompt_id],
+    )?;
+    let rowid: i64 = conn.query_row(
+        "SELECT rowid FROM fts_mapping WHERE prompt_id = ?1",
+        params![prompt_id],
+        |row| row.get(0),
+    )?;
 
-    // Delete old entry (ignore errors if it doesn't exist)
+    // Delete old FTS entry (ignore errors if it doesn't exist yet)
     let _ = conn.execute(
         "INSERT INTO prompts_fts(prompts_fts, rowid, title, description, content, tags) VALUES('delete', ?1, ?2, ?3, ?4, ?5)",
         params![rowid, title, description.as_deref().unwrap_or(""), primary_content, tag_names],
     );
 
-    // Insert new entry
+    // Insert new FTS entry
     conn.execute(
         "INSERT INTO prompts_fts(rowid, title, description, content, tags) VALUES(?1, ?2, ?3, ?4, ?5)",
         params![rowid, title, description.as_deref().unwrap_or(""), primary_content, tag_names],
     )?;
 
     Ok(())
-}
-
-/// Convert a prompt UUID string to a deterministic i64 rowid for FTS5.
-/// Uses a simple hash to map the string to a positive i64.
-fn prompt_id_to_rowid(prompt_id: &str) -> i64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    prompt_id.hash(&mut hasher);
-    // Ensure positive by masking off the sign bit
-    (hasher.finish() & 0x7FFFFFFFFFFFFFFF) as i64
 }
