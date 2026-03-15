@@ -52,4 +52,9 @@ export const api = {
     advance: () => invoke<T.PlaybookSession>('advance_playbook_step'),
     end: () => invoke('end_playbook_session'),
   },
+  importExport: {
+    importJson: (jsonData: string) => invoke<T.ImportResult>('import_json', { jsonData }),
+    exportJson: () => invoke<string>('export_json'),
+    importMarkdownFiles: (files: Array<[string, string]>) => invoke<T.ImportResult>('import_markdown_files', { files }),
+  },
 };

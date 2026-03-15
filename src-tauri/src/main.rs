@@ -85,6 +85,9 @@ fn main() {
             commands::handlers::start_playbook_session,
             commands::handlers::advance_playbook_step,
             commands::handlers::end_playbook_session,
+            commands::handlers::import_json,
+            commands::handlers::export_json,
+            commands::handlers::import_markdown_files,
             hide_search_window,
             show_search_window,
         ])

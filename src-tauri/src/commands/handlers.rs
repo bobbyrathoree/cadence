@@ -2,11 +2,12 @@ use tauri::Emitter;
 
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
+use crate::services::import_export::ImportResult;
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, playbook_service, prompt_service, search_service, tag_service};
+use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, tag_service};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -321,4 +322,30 @@ pub fn end_playbook_session(state: tauri::State<'_, AppState>, app: tauri::AppHa
     playbook_service::end_session(&conn).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
     Ok(())
+}
+
+// ------------------------------------------------------------------
+// Import / Export
+// ------------------------------------------------------------------
+
+#[tauri::command]
+pub fn import_json(state: tauri::State<'_, AppState>, app: tauri::AppHandle, json_data: String) -> Result<ImportResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let result = import_export::import_json(&conn, &json_data).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn export_json(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    import_export::export_json(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_markdown_files(state: tauri::State<'_, AppState>, app: tauri::AppHandle, files: Vec<(String, String)>) -> Result<ImportResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let result = import_export::import_markdown_batch(&conn, files).map_err(|e| e.to_string())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }

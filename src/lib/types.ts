@@ -80,6 +80,12 @@ export interface PlaybookStepWithPrompt extends PlaybookStep {
   choice_prompts?: PromptWithVariants[];
 }
 
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
 export interface PlaybookSession {
   active_playbook_id: string | null;
   current_step: number;

@@ -12,7 +12,7 @@ use super::server::ApiState;
 use crate::models::collection::CreateCollectionRequest;
 use crate::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, playbook_service, prompt_service, search_service, tag_service};
+use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, tag_service};
 
 // ------------------------------------------------------------------
 // Router
@@ -59,6 +59,9 @@ pub fn router() -> Router<Arc<ApiState>> {
             "/api/v1/playbooks/{id}",
             get(get_playbook).delete(delete_playbook),
         )
+        // Import / Export
+        .route("/api/v1/import", post(import_prompts))
+        .route("/api/v1/export", get(export_prompts))
         // Search
         .route("/api/v1/search", get(search))
         // Copy
@@ -496,6 +499,52 @@ async fn record_copy(
 
     match result {
         Ok(content) => Json(RecordCopyResponse { content }).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+// ------------------------------------------------------------------
+// Import / Export
+// ------------------------------------------------------------------
+
+async fn import_prompts(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<import_export::ImportData>,
+) -> impl IntoResponse {
+    let json_str = serde_json::to_string(&req).unwrap_or_default();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        import_export::import_json(&conn, &json_str).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(import_result) => Json(import_result).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+async fn export_prompts(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        import_export::export_json(&conn).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+
+    match result {
+        Ok(json_str) => {
+            // Parse the string back to ExportData so axum serializes it as JSON
+            match serde_json::from_str::<import_export::ExportData>(&json_str) {
+                Ok(data) => Json(data).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+            }
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     }
 }
