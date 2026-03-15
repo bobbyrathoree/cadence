@@ -1,2 +1,6 @@
 // Services module — CRUD operations and business logic.
-// Implementations will be added in subsequent tasks.
+
+pub mod prompt_service;
+pub mod tag_service;
+pub mod collection_service;
+pub mod search_service;
