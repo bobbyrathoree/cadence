@@ -1,2 +1,8 @@
 // Cadence library module
-// Module declarations will be added as the project grows.
+
+pub mod api;
+pub mod commands;
+pub mod db;
+pub mod models;
+pub mod services;
+pub mod state;
