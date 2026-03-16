@@ -16,10 +16,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
 
-    let icon = Image::from_path("icons/icon.png").unwrap_or_else(|_| {
-        Image::from_bytes(include_bytes!("../icons/icon.png"))
-            .expect("Failed to load embedded tray icon")
-    });
+    let icon = Image::from_bytes(include_bytes!("../icons/tray_44.png"))
+        .expect("Failed to load embedded tray icon");
 
     TrayIconBuilder::new()
         .menu(&menu)
