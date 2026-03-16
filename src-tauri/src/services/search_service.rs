@@ -63,7 +63,7 @@ pub fn search_prompts(
             row.get::<_, i64>(3)? != 0,
             row.get::<_, i64>(4)?,
             row.get::<_, Option<String>>(5)?,
-            row.get::<_, String>(6)?,
+            row.get::<_, Option<String>>(6)?.unwrap_or_default(),
             row.get::<_, i64>(7)?,
         ))
     })?;
