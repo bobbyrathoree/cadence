@@ -36,11 +36,15 @@ Cadence fixes this. It's a native macOS app built specifically for managing AI p
 
 **Main Window** — Browse, search, organize, and edit your entire prompt library.
 
-<!-- ![Main Window](assets/screenshots/main-window.png) -->
+<p align="center">
+  <img src="assets/screenshots/main-window.png" alt="Main Window" width="100%" />
+</p>
 
 **Floating Search** (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>) — A Raycast-style search panel that appears instantly from any app. Find a prompt, hit Enter, it's on your clipboard.
 
-<!-- ![Floating Search](assets/screenshots/floating-search.png) -->
+<p align="center">
+  <img src="assets/screenshots/floating-search.png" alt="Floating Search" width="100%" />
+</p>
 
 **Menu Bar** — Your most recent and favorite prompts, one click away. No window needed.
 
@@ -48,7 +52,9 @@ Cadence fixes this. It's a native macOS app built specifically for managing AI p
 
 Chain prompts in the right order. Add operator notes. Branch with choice steps.
 
-<!-- ![Playbook](assets/screenshots/playbook.png) -->
+<p align="center">
+  <img src="assets/screenshots/playbook.png" alt="Playbook Stepper" width="100%" />
+</p>
 
 - **Step-by-step stepper** with visual progress (completed / active / pending)
 - **Operator notes** on each step — human-to-human advice on how to use each prompt
@@ -219,35 +225,6 @@ Playbook (sequenced workflow)
   └── PlaybookStep[] (single prompt or choice between prompts)
   └── PlaybookSession (tracks progress — one active at a time)
 ```
-
-## Roadmap
-
-### v1 (current)
-- [x] Three-column main window
-- [x] Floating search with global hotkey
-- [x] Native menu bar tray
-- [x] Playbooks with stepper UI and choice steps
-- [x] Tags, collections, smart collections
-- [x] Prompt variants
-- [x] Full-text search (FTS5)
-- [x] Local REST API with Bearer auth
-- [x] JSON and Markdown import/export
-- [x] Prompt Slicer for messy imports
-- [x] Keyboard-first interaction
-- [x] Dark and light mode
-
-### v2
-- [ ] Variable interpolation (fill `{{placeholders}}` before copying)
-- [ ] Watch folder (live-sync from a directory)
-- [ ] Multi-select + bulk operations
-- [ ] "Copy as..." (plain text, Markdown, JSON escaped)
-- [ ] Playbook sharing (`.cadence` export format)
-
-### v3
-- [ ] CloudKit / iCloud sync
-- [ ] Prompt chains (output of A feeds into B)
-- [ ] Spotlight integration
-- [ ] iOS companion app
 
 ## Contributing
 
