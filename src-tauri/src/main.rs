@@ -94,6 +94,9 @@ fn main() {
             commands::handlers::import_json,
             commands::handlers::export_json,
             commands::handlers::import_markdown_files,
+            commands::handlers::get_keyboard_shortcuts,
+            commands::handlers::update_keyboard_shortcut,
+            commands::handlers::reset_keyboard_shortcuts,
             hide_search_window,
             show_search_window,
         ])
@@ -105,14 +108,27 @@ fn main() {
                 eprintln!("Failed to setup tray: {}", e);
             }
 
-            // Register global shortcut: Cmd+Shift+P to toggle search window
+            // Register global shortcut dynamically from saved settings
             {
+                use cadence_lib::services::settings_service;
                 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+                let shortcut_binding = {
+                    let state = app.state::<AppState>();
+                    let conn = state.db.lock().expect("Failed to lock DB for shortcut init");
+                    let shortcuts = settings_service::get_keyboard_shortcuts(&conn)
+                        .unwrap_or_default();
+                    shortcuts
+                        .iter()
+                        .find(|s| s.action == "global_toggle_search")
+                        .map(|s| s.binding.clone())
+                        .unwrap_or_else(|| "CommandOrControl+Shift+P".to_string())
+                };
 
                 let handle_for_shortcut = handle.clone();
 
                 app.global_shortcut()
-                    .on_shortcut("CommandOrControl+Shift+P", move |_app, _shortcut, event| {
+                    .on_shortcut(shortcut_binding.as_str(), move |_app, _shortcut, event| {
                         if event.state == ShortcutState::Pressed {
                             if let Some(window) =
                                 handle_for_shortcut.get_webview_window("search")

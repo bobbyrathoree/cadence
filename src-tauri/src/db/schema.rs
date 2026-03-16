@@ -167,6 +167,12 @@ pub fn create_tables(conn: &Connection) -> rusqlite::Result<()> {
             SELECT RAISE(ABORT, 'cannot soft delete a prompt primary variant');
         END;
 
+        -- Settings (key-value store for app preferences)
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         -- Indexes
         CREATE INDEX IF NOT EXISTS idx_prompts_deleted_at     ON prompts(deleted_at);
         CREATE INDEX IF NOT EXISTS idx_prompts_is_favorite    ON prompts(is_favorite);

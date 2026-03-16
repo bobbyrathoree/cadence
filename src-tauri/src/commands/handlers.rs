@@ -1,13 +1,14 @@
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
+use crate::models::settings::KeyboardShortcut;
 use crate::services::import_export::ImportResult;
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, tag_service};
+use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, settings_service, tag_service};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -347,5 +348,137 @@ pub fn import_markdown_files(state: tauri::State<'_, AppState>, app: tauri::AppH
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let result = import_export::import_markdown_batch(&conn, files).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
+    Ok(result)
+}
+
+// ------------------------------------------------------------------
+// Settings / Keyboard Shortcuts
+// ------------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_keyboard_shortcuts(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<KeyboardShortcut>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    settings_service::get_keyboard_shortcuts(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_keyboard_shortcut(
+    action: String,
+    binding: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<KeyboardShortcut>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    // If updating the global shortcut, handle re-registration
+    if action == "global_toggle_search" {
+        // Get old binding first
+        let old_shortcuts =
+            settings_service::get_keyboard_shortcuts(&conn).map_err(|e| e.to_string())?;
+        let old_binding = old_shortcuts
+            .iter()
+            .find(|s| s.action == "global_toggle_search")
+            .map(|s| s.binding.clone());
+
+        // Update in DB
+        let result = settings_service::update_shortcut(&conn, &action, &binding)
+            .map_err(|e| e.to_string())?;
+
+        // Re-register global shortcut
+        use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+        // Unregister old
+        if let Some(ref old) = old_binding {
+            let _ = app.global_shortcut().unregister(old.as_str());
+        }
+
+        // Register new
+        let handle = app.clone();
+        let register_result =
+            app.global_shortcut()
+                .on_shortcut(binding.as_str(), move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(window) = handle.get_webview_window("search") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                });
+
+        // If registration failed, rollback: re-register old and revert DB
+        if let Err(e) = register_result {
+            if let Some(ref old) = old_binding {
+                let rollback_handle = app.clone();
+                let _ = app.global_shortcut().on_shortcut(
+                    old.as_str(),
+                    move |_app, _shortcut, event| {
+                        if event.state == ShortcutState::Pressed {
+                            if let Some(window) =
+                                rollback_handle.get_webview_window("search")
+                            {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    },
+                );
+                let _ = settings_service::update_shortcut(&conn, &action, old);
+            }
+            return Err(format!(
+                "Failed to register shortcut '{}': {}. Reverted to previous binding.",
+                binding, e
+            ));
+        }
+
+        let _ = app.emit("shortcuts-changed", ());
+        Ok(result)
+    } else {
+        let result = settings_service::update_shortcut(&conn, &action, &binding)
+            .map_err(|e| e.to_string())?;
+        let _ = app.emit("shortcuts-changed", ());
+        Ok(result)
+    }
+}
+
+#[tauri::command]
+pub fn reset_keyboard_shortcuts(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<KeyboardShortcut>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let result = settings_service::reset_shortcuts(&conn).map_err(|e| e.to_string())?;
+
+    // Re-register the default global shortcut
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    let _ = app.global_shortcut().unregister_all();
+
+    let handle = app.clone();
+    let _ = app.global_shortcut().on_shortcut(
+        "CommandOrControl+Shift+P",
+        move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                if let Some(window) = handle.get_webview_window("search") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        },
+    );
+
+    let _ = app.emit("shortcuts-changed", ());
     Ok(result)
 }
