@@ -114,6 +114,10 @@ API credentials are at `~/Library/Application Support/Cadence/api.json`.
 | <kbd>↑</kbd> <kbd>↓</kbd> | Navigate prompt list |
 | <kbd>Esc</kbd> | Dismiss / deselect |
 
+### Starter Kit
+
+Cadence ships with a curated set of 6 prompts and a sample Playbook out of the box — so the app feels alive on first launch and you can see how tags, variants, and Playbooks work with real content. Everything in the starter kit is tagged `starter-kit` so you can delete it all in one go when you're ready to go fully custom.
+
 ## Installation
 
 ### From Source
