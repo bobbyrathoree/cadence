@@ -10,6 +10,7 @@ use tauri::Manager;
 use cadence_lib::api;
 use cadence_lib::commands;
 use cadence_lib::db;
+use cadence_lib::seed;
 use cadence_lib::state::AppState;
 
 /// Generate an API key in the format `cad_` followed by 16 random hex characters.
@@ -37,6 +38,11 @@ fn show_search_window(app: tauri::AppHandle) {
 fn main() {
     // Initialize the database (creates dir + schema if needed).
     let conn = db::init().expect("Failed to initialize database");
+
+    // Seed starter content on first launch (no-op if data already exists).
+    if let Err(e) = seed::seed_if_empty(&conn) {
+        eprintln!("Warning: failed to seed starter kit: {}", e);
+    }
 
     let api_key = generate_api_key();
     let api_port: u16 = 0; // Will be determined by the API server
