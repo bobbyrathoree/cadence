@@ -1,9 +1,74 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::prompt::{
     CreatePromptRequest, Prompt, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
 use crate::services::tag_service;
+
+fn invalid_input(message: impl Into<String>) -> rusqlite::Error {
+    rusqlite::Error::InvalidParameterName(message.into())
+}
+
+fn ensure_variant_belongs_to_prompt(
+    conn: &Connection,
+    prompt_id: &str,
+    variant_id: &str,
+) -> rusqlite::Result<()> {
+    let is_valid = conn
+        .query_row(
+            "SELECT 1
+             FROM variants
+             WHERE id = ?1 AND prompt_id = ?2 AND deleted_at IS NULL",
+            params![variant_id, prompt_id],
+            |_| Ok(()),
+        )
+        .optional()?;
+
+    if is_valid.is_some() {
+        Ok(())
+    } else {
+        Err(invalid_input(
+            "variant must belong to the target prompt and remain active",
+        ))
+    }
+}
+
+fn get_active_primary_variant_id(conn: &Connection, prompt_id: &str) -> rusqlite::Result<String> {
+    conn.query_row(
+        "SELECT v.id
+         FROM prompts p
+         JOIN variants v ON v.id = p.primary_variant_id
+         WHERE p.id = ?1
+           AND p.deleted_at IS NULL
+           AND v.prompt_id = p.id
+           AND v.deleted_at IS NULL",
+        params![prompt_id],
+        |row| row.get(0),
+    )
+    .map_err(|err| match err {
+        rusqlite::Error::QueryReturnedNoRows => {
+            invalid_input("prompt primary variant is missing or invalid")
+        }
+        other => other,
+    })
+}
+
+fn next_active_variant_id(
+    conn: &Connection,
+    prompt_id: &str,
+    excluding_variant_id: &str,
+) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT id
+         FROM variants
+         WHERE prompt_id = ?1 AND id <> ?2 AND deleted_at IS NULL
+         ORDER BY sort_order, created_at, id
+         LIMIT 1",
+        params![prompt_id, excluding_variant_id],
+        |row| row.get(0),
+    )
+    .optional()
+}
 
 /// Create a new prompt with a default variant, tags, and FTS index entry.
 pub fn create_prompt(
@@ -23,7 +88,7 @@ pub fn create_prompt(
             prompt_id,
             req.title,
             req.description,
-            variant_id,
+            Option::<String>::None,
             req.is_favorite as i64,
             now,
             now,
@@ -35,6 +100,11 @@ pub fn create_prompt(
         "INSERT INTO variants (id, prompt_id, label, content, content_type, sort_order, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, 'static', 0, ?5, ?6)",
         params![variant_id, prompt_id, variant_label, req.content, now, now],
+    )?;
+
+    conn.execute(
+        "UPDATE prompts SET primary_variant_id = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+        params![variant_id, prompt_id],
     )?;
 
     // Add tags
@@ -222,6 +292,7 @@ pub fn update_prompt(
         )?;
     }
     if let Some(ref primary_variant_id) = req.primary_variant_id {
+        ensure_variant_belongs_to_prompt(conn, id, primary_variant_id)?;
         conn.execute(
             "UPDATE prompts SET primary_variant_id = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
             params![primary_variant_id, now, id],
@@ -275,22 +346,19 @@ pub fn record_copy(
 
     // Determine which variant to copy
     let actual_variant_id: String = match variant_id {
-        Some(vid) => vid.to_string(),
-        None => {
-            // Use the primary variant
-            conn.query_row(
-                "SELECT primary_variant_id FROM prompts WHERE id = ?1 AND deleted_at IS NULL",
-                params![prompt_id],
-                |row| row.get::<_, Option<String>>(0),
-            )?
-            .ok_or(rusqlite::Error::QueryReturnedNoRows)?
+        Some(vid) => {
+            ensure_variant_belongs_to_prompt(conn, prompt_id, vid)?;
+            vid.to_string()
         }
+        None => get_active_primary_variant_id(conn, prompt_id)?,
     };
 
     // Get the content
     let content: String = conn.query_row(
-        "SELECT content FROM variants WHERE id = ?1 AND deleted_at IS NULL",
-        params![actual_variant_id],
+        "SELECT content
+         FROM variants
+         WHERE id = ?1 AND prompt_id = ?2 AND deleted_at IS NULL",
+        params![actual_variant_id, prompt_id],
         |row| row.get(0),
     )?;
 
@@ -399,23 +467,41 @@ pub fn update_variant(
 pub fn delete_variant(conn: &Connection, id: &str) -> rusqlite::Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
 
-    // Get prompt_id before deleting
-    let prompt_id: String = conn.query_row(
-        "SELECT prompt_id FROM variants WHERE id = ?1",
+    // Get prompt ownership before deleting.
+    let (prompt_id, is_primary): (String, bool) = conn.query_row(
+        "SELECT v.prompt_id,
+                CASE WHEN p.primary_variant_id = v.id THEN 1 ELSE 0 END
+         FROM variants v
+         JOIN prompts p ON p.id = v.prompt_id
+         WHERE v.id = ?1
+           AND v.deleted_at IS NULL
+           AND p.deleted_at IS NULL",
         params![id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
     )?;
+
+    if is_primary {
+        let replacement = next_active_variant_id(conn, &prompt_id, id)?.ok_or_else(|| {
+            invalid_input("cannot delete the only active variant on a prompt")
+        })?;
+
+        conn.execute(
+            "UPDATE prompts SET primary_variant_id = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+            params![replacement, now, prompt_id],
+        )?;
+    }
 
     conn.execute(
         "UPDATE variants SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
         params![now, id],
     )?;
 
-    // Update prompt's updated_at
-    conn.execute(
-        "UPDATE prompts SET updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
-        params![now, prompt_id],
-    )?;
+    if !is_primary {
+        conn.execute(
+            "UPDATE prompts SET updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            params![now, prompt_id],
+        )?;
+    }
 
     update_fts_index(conn, &prompt_id)?;
 

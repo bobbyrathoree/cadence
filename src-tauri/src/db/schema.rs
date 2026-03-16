@@ -134,6 +134,39 @@ pub fn create_tables(conn: &Connection) -> rusqlite::Result<()> {
             contentless_delete=1
         );
 
+        -- Ensure prompt primary variants always reference an active variant owned by the prompt.
+        CREATE TRIGGER IF NOT EXISTS validate_prompt_primary_variant
+        BEFORE UPDATE OF primary_variant_id ON prompts
+        FOR EACH ROW
+        WHEN NEW.primary_variant_id IS NOT NULL
+         AND NOT EXISTS (
+             SELECT 1
+             FROM variants
+             WHERE id = NEW.primary_variant_id
+               AND prompt_id = NEW.id
+               AND deleted_at IS NULL
+         )
+        BEGIN
+            SELECT RAISE(ABORT, 'primary_variant_id must reference an active prompt-owned variant');
+        END;
+
+        -- Prevent soft-deleting whichever variant a prompt currently treats as primary.
+        CREATE TRIGGER IF NOT EXISTS prevent_primary_variant_soft_delete
+        BEFORE UPDATE OF deleted_at ON variants
+        FOR EACH ROW
+        WHEN NEW.deleted_at IS NOT NULL
+         AND OLD.deleted_at IS NULL
+         AND EXISTS (
+             SELECT 1
+             FROM prompts
+             WHERE id = OLD.prompt_id
+               AND primary_variant_id = OLD.id
+               AND deleted_at IS NULL
+         )
+        BEGIN
+            SELECT RAISE(ABORT, 'cannot soft delete a prompt primary variant');
+        END;
+
         -- Indexes
         CREATE INDEX IF NOT EXISTS idx_prompts_deleted_at     ON prompts(deleted_at);
         CREATE INDEX IF NOT EXISTS idx_prompts_is_favorite    ON prompts(is_favorite);

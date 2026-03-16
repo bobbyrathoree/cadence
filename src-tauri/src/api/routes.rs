@@ -14,6 +14,10 @@ use crate::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use crate::models::tag::{CreateTagRequest, Tag};
 use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, tag_service};
 
+const DEFAULT_PAGE_SIZE: i64 = 100;
+const MAX_PAGE_SIZE: i64 = 500;
+const MAX_SEARCH_QUERY_CHARS: usize = 512;
+
 // ------------------------------------------------------------------
 // Router
 // ------------------------------------------------------------------
@@ -72,6 +76,24 @@ pub fn router() -> Router<Arc<ApiState>> {
 // Shared helpers
 // ------------------------------------------------------------------
 
+fn sanitize_pagination(
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<(i64, i64), (StatusCode, &'static str)> {
+    let limit = limit.unwrap_or(DEFAULT_PAGE_SIZE);
+    let offset = offset.unwrap_or(0);
+
+    if limit < 1 {
+        return Err((StatusCode::BAD_REQUEST, "limit must be at least 1"));
+    }
+
+    if offset < 0 {
+        return Err((StatusCode::BAD_REQUEST, "offset must be at least 0"));
+    }
+
+    Ok((limit.min(MAX_PAGE_SIZE), offset))
+}
+
 // ------------------------------------------------------------------
 // Health
 // ------------------------------------------------------------------
@@ -101,8 +123,11 @@ async fn list_prompts(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<ListPromptsQuery>,
 ) -> impl IntoResponse {
-    let limit = params.limit.unwrap_or(100);
-    let offset = params.offset.unwrap_or(0);
+    let (limit, offset) = match sanitize_pagination(params.limit, params.offset) {
+        Ok(values) => values,
+        Err(err) => return err.into_response(),
+    };
+
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         prompt_service::list_prompts(&conn, limit, offset).map_err(|e| e.to_string())
@@ -455,6 +480,10 @@ async fn search(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<SearchQuery>,
 ) -> impl IntoResponse {
+    if params.q.chars().count() > MAX_SEARCH_QUERY_CHARS {
+        return (StatusCode::BAD_REQUEST, "query too long").into_response();
+    }
+
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         search_service::search_prompts(&conn, &params.q, 50).map_err(|e| e.to_string())

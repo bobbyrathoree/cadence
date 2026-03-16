@@ -170,6 +170,87 @@ fn test_variant_operations() {
     );
 }
 
+#[test]
+fn test_prompt_cannot_adopt_foreign_primary_variant() {
+    let conn = setup_db();
+
+    let first = create_test_prompt(&conn, "Prompt One", "Alpha", vec![], false);
+    let second = create_test_prompt(&conn, "Prompt Two", "Beta", vec![], false);
+    let foreign_variant_id = second.variants[0].id.clone();
+
+    let result = prompt_service::update_prompt(
+        &conn,
+        &first.prompt.id,
+        UpdatePromptRequest {
+            title: None,
+            description: None,
+            is_favorite: None,
+            is_pinned: None,
+            primary_variant_id: Some(foreign_variant_id),
+        },
+    );
+
+    assert!(
+        result.is_err(),
+        "A prompt should reject another prompt's variant as its primary"
+    );
+}
+
+#[test]
+fn test_record_copy_rejects_foreign_variant_id() {
+    let conn = setup_db();
+
+    let first = create_test_prompt(&conn, "Prompt One", "Alpha", vec![], false);
+    let second = create_test_prompt(&conn, "Prompt Two", "Beta", vec![], false);
+    let foreign_variant_id = second.variants[0].id.clone();
+
+    let result = prompt_service::record_copy(&conn, &first.prompt.id, Some(&foreign_variant_id));
+
+    assert!(
+        result.is_err(),
+        "Copy tracking should reject variant IDs that do not belong to the prompt"
+    );
+}
+
+#[test]
+fn test_delete_primary_variant_promotes_next_active_variant() {
+    let conn = setup_db();
+
+    let created = create_test_prompt(&conn, "Variant Prompt", "Default content", vec![], false);
+    let prompt_id = created.prompt.id.clone();
+    let original_primary_id = created.prompt.primary_variant_id.clone().unwrap();
+    let replacement =
+        prompt_service::add_variant(&conn, &prompt_id, "Fallback", "Fallback content").unwrap();
+
+    prompt_service::delete_variant(&conn, &original_primary_id).unwrap();
+
+    let fetched = prompt_service::get_prompt_by_id(&conn, &prompt_id).unwrap();
+    assert_eq!(
+        fetched.prompt.primary_variant_id.as_deref(),
+        Some(replacement.id.as_str()),
+        "Deleting the primary variant should promote the next active variant"
+    );
+    assert_eq!(fetched.variants.len(), 1, "Only the replacement variant should remain");
+}
+
+#[test]
+fn test_database_trigger_blocks_primary_variant_soft_delete() {
+    let conn = setup_db();
+
+    let created = create_test_prompt(&conn, "Trigger Prompt", "Default content", vec![], false);
+    let primary_variant_id = created.prompt.primary_variant_id.clone().unwrap();
+
+    let result = conn.execute(
+        "UPDATE variants SET deleted_at = ?1 WHERE id = ?2",
+        rusqlite::params!["2026-03-15T00:00:00Z", primary_variant_id],
+    );
+
+    assert!(
+        result.is_err(),
+        "The database should reject direct soft-deletes of a prompt's primary variant"
+    );
+}
+
 // =========================================================================
 // 3. Favorites
 // =========================================================================

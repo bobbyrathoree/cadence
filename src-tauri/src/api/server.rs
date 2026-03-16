@@ -1,11 +1,16 @@
-use axum::{middleware, Router};
+use axum::{extract::DefaultBodyLimit, middleware, Router};
 use rusqlite::Connection;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use tower_http::cors::{Any, CorsLayer};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use super::auth::auth_middleware;
 use super::routes;
+
+const MAX_API_BODY_BYTES: usize = 4 * 1024 * 1024;
 
 /// State shared with axum route handlers.
 /// Uses a separate SQLite connection from the Tauri-managed one.
@@ -20,15 +25,10 @@ pub struct ApiState {
 /// to `~/Library/Application Support/Cadence/api.json` with the port and key,
 /// and runs the server indefinitely.
 pub async fn start(state: Arc<ApiState>) {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
     let app = Router::new()
         .merge(routes::router())
+        .layer(DefaultBodyLimit::max(MAX_API_BODY_BYTES))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
-        .layer(cors)
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -53,7 +53,10 @@ pub async fn start(state: Arc<ApiState>) {
 /// Write the API discovery file so external tools (Raycast, Shortcuts) can find the server.
 fn write_discovery_file(port: u16, api_key: &str) -> std::io::Result<()> {
     let dir = crate::db::db_path();
-    std::fs::create_dir_all(&dir)?;
+    fs::create_dir_all(&dir)?;
+
+    #[cfg(unix)]
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
 
     let discovery = serde_json::json!({
         "port": port,
@@ -61,7 +64,29 @@ fn write_discovery_file(port: u16, api_key: &str) -> std::io::Result<()> {
     });
 
     let path = dir.join("api.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&discovery).unwrap())?;
+    let payload = serde_json::to_vec_pretty(&discovery).unwrap();
+    write_private_file(&path, &payload)?;
 
     Ok(())
+}
+
+fn write_private_file(path: &std::path::Path, payload: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(payload)?;
+        file.flush()?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        return Ok(());
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, payload)
+    }
 }
