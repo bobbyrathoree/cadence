@@ -14,7 +14,7 @@ Thanks for your interest in contributing to Cadence. This document covers the ba
 ### Getting Started
 
 ```bash
-git clone https://github.com/yourusername/cadence.git
+git clone https://github.com/bobbyrathoree/cadence.git
 cd cadence
 npm install
 npm run tauri dev
