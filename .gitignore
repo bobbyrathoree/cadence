@@ -50,6 +50,8 @@ docs/
 # Screenshots / mockups / test artifacts
 *.png
 !src-tauri/icons/*.png
+!assets/**/*.png
+!assets/*.png
 e2e-*
 *-snap.*
 
