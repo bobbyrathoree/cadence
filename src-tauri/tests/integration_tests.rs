@@ -8,7 +8,7 @@ use cadence_lib::models::collection::CreateCollectionRequest;
 use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use cadence_lib::services::{
     collection_service, import_export, playbook_service, prompt_service, search_service,
-    tag_service,
+    settings_service, tag_service,
 };
 
 /// Create a fresh in-memory database with schema and FKs enabled.
@@ -1267,4 +1267,91 @@ fn test_search_after_update() {
     // Search by new title should work
     let results = search_service::search_prompts(&conn, "Giraffes", 50).unwrap();
     assert_eq!(results.len(), 1, "Should find prompt by updated title");
+}
+
+// =========================================================================
+// Settings & Keyboard Shortcuts
+// =========================================================================
+
+#[test]
+fn test_get_default_shortcuts() {
+    // On a fresh DB with no settings saved, get_keyboard_shortcuts should
+    // return all 11 default shortcuts with their default bindings.
+    let conn = setup_db();
+    let shortcuts = settings_service::get_keyboard_shortcuts(&conn).unwrap();
+    assert_eq!(shortcuts.len(), 11, "Should have 11 default shortcuts");
+
+    // Verify specific defaults
+    let search = shortcuts.iter().find(|s| s.action == "global_toggle_search").unwrap();
+    assert_eq!(search.binding, "CommandOrControl+Shift+P");
+    assert!(search.is_global);
+
+    let new_prompt = shortcuts.iter().find(|s| s.action == "new_prompt").unwrap();
+    assert_eq!(new_prompt.binding, "CommandOrControl+N");
+    assert!(!new_prompt.is_global);
+}
+
+#[test]
+fn test_update_shortcut_persists() {
+    // Updating a shortcut should persist and be returned on next get
+    let conn = setup_db();
+
+    let updated = settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+    let new_prompt = updated.iter().find(|s| s.action == "new_prompt").unwrap();
+    assert_eq!(new_prompt.binding, "CommandOrControl+Shift+N", "Updated binding should persist");
+    assert_eq!(new_prompt.default_binding, "CommandOrControl+N", "Default should be unchanged");
+
+    // Fetch again to verify DB persistence
+    let shortcuts = settings_service::get_keyboard_shortcuts(&conn).unwrap();
+    let new_prompt = shortcuts.iter().find(|s| s.action == "new_prompt").unwrap();
+    assert_eq!(new_prompt.binding, "CommandOrControl+Shift+N");
+}
+
+#[test]
+fn test_update_shortcut_preserves_others() {
+    // Updating one shortcut should not affect other shortcuts
+    let conn = setup_db();
+
+    settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+    let shortcuts = settings_service::get_keyboard_shortcuts(&conn).unwrap();
+
+    let search = shortcuts.iter().find(|s| s.action == "focus_search").unwrap();
+    assert_eq!(search.binding, "CommandOrControl+F", "Unmodified shortcuts should keep defaults");
+}
+
+#[test]
+fn test_reset_shortcuts_to_defaults() {
+    // After modifying shortcuts, reset should restore all defaults
+    let conn = setup_db();
+
+    settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+    settings_service::update_shortcut(&conn, "focus_search", "CommandOrControl+Shift+F").unwrap();
+
+    let reset = settings_service::reset_shortcuts(&conn).unwrap();
+
+    let new_prompt = reset.iter().find(|s| s.action == "new_prompt").unwrap();
+    assert_eq!(new_prompt.binding, "CommandOrControl+N", "Should revert to default after reset");
+
+    let search = reset.iter().find(|s| s.action == "focus_search").unwrap();
+    assert_eq!(search.binding, "CommandOrControl+F", "Should revert to default after reset");
+}
+
+#[test]
+fn test_generic_settings_crud() {
+    // Test the generic get_setting / set_setting functions
+    let conn = setup_db();
+
+    // Initially empty
+    let val = settings_service::get_setting(&conn, "some_key").unwrap();
+    assert!(val.is_none(), "Setting should not exist initially");
+
+    // Set a value
+    settings_service::set_setting(&conn, "some_key", "some_value").unwrap();
+    let val = settings_service::get_setting(&conn, "some_key").unwrap();
+    assert_eq!(val.as_deref(), Some("some_value"));
+
+    // Update the value
+    settings_service::set_setting(&conn, "some_key", "new_value").unwrap();
+    let val = settings_service::get_setting(&conn, "some_key").unwrap();
+    assert_eq!(val.as_deref(), Some("new_value"), "Setting should be updated via upsert");
 }
