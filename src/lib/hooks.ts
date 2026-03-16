@@ -7,6 +7,7 @@ import type {
   Collection,
   Playbook,
   PlaybookSession,
+  KeyboardShortcut,
 } from './types';
 
 /**
@@ -202,6 +203,38 @@ export function usePlaybooks(
   }, [refreshCounter]);
 
   return { playbooks, loading };
+}
+
+/**
+ * Fetches keyboard shortcuts.
+ */
+export function useKeyboardShortcuts(
+  refreshCounter: number,
+): { shortcuts: KeyboardShortcut[]; loading: boolean } {
+  const [shortcuts, setShortcuts] = useState<KeyboardShortcut[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    api.settings
+      .getShortcuts()
+      .then((result) => {
+        if (!cancelled) setShortcuts(result);
+      })
+      .catch((err) => {
+        console.error('useKeyboardShortcuts error:', err);
+        if (!cancelled) setShortcuts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [refreshCounter]);
+
+  return { shortcuts, loading };
 }
 
 /**

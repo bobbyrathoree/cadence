@@ -32,6 +32,10 @@ export interface AppContextType {
   // Import modal
   isImportOpen: boolean;
   setIsImportOpen: (v: boolean) => void;
+
+  // Settings modal
+  isSettingsOpen: boolean;
+  setIsSettingsOpen: (v: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -46,6 +50,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const triggerRefresh = useCallback(() => {
     setRefreshCounter((c) => c + 1);
@@ -72,6 +77,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsEditing,
         isImportOpen,
         setIsImportOpen,
+        isSettingsOpen,
+        setIsSettingsOpen,
       }}
     >
       {children}

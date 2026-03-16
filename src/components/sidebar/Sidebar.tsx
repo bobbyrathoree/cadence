@@ -127,6 +127,15 @@ function ExportIcon() {
   );
 }
 
+function GearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="2.5" />
+      <path d="M13.3 9.7a1.2 1.2 0 0 0 .24 1.32l.04.04a1.44 1.44 0 1 1-2.04 2.04l-.04-.04a1.2 1.2 0 0 0-1.32-.24 1.2 1.2 0 0 0-.72 1.1v.12a1.44 1.44 0 1 1-2.88 0v-.06a1.2 1.2 0 0 0-.78-1.1 1.2 1.2 0 0 0-1.32.24l-.04.04a1.44 1.44 0 1 1-2.04-2.04l.04-.04a1.2 1.2 0 0 0 .24-1.32 1.2 1.2 0 0 0-1.1-.72H1.44a1.44 1.44 0 1 1 0-2.88h.06a1.2 1.2 0 0 0 1.1-.78 1.2 1.2 0 0 0-.24-1.32l-.04-.04a1.44 1.44 0 1 1 2.04-2.04l.04.04a1.2 1.2 0 0 0 1.32.24h.06a1.2 1.2 0 0 0 .72-1.1V1.44a1.44 1.44 0 1 1 2.88 0v.06a1.2 1.2 0 0 0 .72 1.1 1.2 1.2 0 0 0 1.32-.24l.04-.04a1.44 1.44 0 1 1 2.04 2.04l-.04.04a1.2 1.2 0 0 0-.24 1.32v.06a1.2 1.2 0 0 0 1.1.72h.12a1.44 1.44 0 1 1 0 2.88h-.06a1.2 1.2 0 0 0-1.1.72z" />
+    </svg>
+  );
+}
+
 export function Sidebar() {
   const {
     activeView,
@@ -137,6 +146,7 @@ export function Sidebar() {
     setActivePlaybookId,
     refreshCounter,
     setIsImportOpen,
+    setIsSettingsOpen,
   } = useAppContext();
 
   const [exporting, setExporting] = useState(false);
@@ -349,10 +359,40 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* Settings */}
+      <div
+        className="flex-shrink-0 px-2 pt-2"
+        style={{ borderTop: '1px solid var(--border)', marginTop: 8 }}
+      >
+        <button
+          onClick={() => setIsSettingsOpen(true)}
+          className="flex items-center gap-2 w-full rounded-md cursor-default"
+          style={{
+            padding: '6px 10px',
+            fontSize: '11px',
+            fontWeight: 500,
+            color: 'var(--text-secondary)',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'color-mix(in srgb, var(--text-secondary) 10%, transparent)';
+            e.currentTarget.style.color = 'var(--text-primary)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+          }}
+        >
+          <GearIcon />
+          Settings
+        </button>
+      </div>
+
       {/* Import / Export */}
       <div
-        className="flex-shrink-0 px-2 pb-3 pt-2"
-        style={{ borderTop: '1px solid var(--border)', marginTop: 8 }}
+        className="flex-shrink-0 px-2 pb-3 pt-1.5"
       >
         <div className="flex gap-1.5">
           <button

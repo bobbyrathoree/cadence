@@ -65,4 +65,10 @@ export const api = {
     exportJson: () => invoke<string>('export_json'),
     importMarkdownFiles: (files: Array<[string, string]>) => invoke<T.ImportResult>('import_markdown_files', { files }),
   },
+  settings: {
+    getShortcuts: () => invoke<T.KeyboardShortcut[]>('get_keyboard_shortcuts'),
+    updateShortcut: (action: string, binding: string) =>
+      invoke<T.KeyboardShortcut[]>('update_keyboard_shortcut', { action, binding }),
+    resetShortcuts: () => invoke<T.KeyboardShortcut[]>('reset_keyboard_shortcuts'),
+  },
 };

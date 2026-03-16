@@ -91,3 +91,11 @@ export interface PlaybookSession {
   current_step: number;
   started_at: string | null;
 }
+
+export interface KeyboardShortcut {
+  action: string;
+  binding: string;
+  label: string;
+  default_binding: string;
+  is_global: boolean;
+}
