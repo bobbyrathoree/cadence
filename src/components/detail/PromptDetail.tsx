@@ -333,6 +333,7 @@ export function PromptDetail({ promptId }: Props) {
             <input
               ref={titleInputRef}
               type="text"
+              aria-label="Prompt title"
               value={drafts.metadata?.title ?? prompt.title}
               onChange={(e) =>
                 dispatchDraft({ type: 'edit_metadata', title: e.target.value })
