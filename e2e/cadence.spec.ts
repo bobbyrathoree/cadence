@@ -230,6 +230,27 @@ test("preserves prompt drafts across a db-changed refetch", async ({ page }) => 
   });
 });
 
+test("enables and disables the local API from Settings", async ({ page }) => {
+  await openCadence(page, "/");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const toggle = dialog.getByRole("switch", { name: "Enable local API" });
+
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+
+  const calls = await ipcCalls(page, ["set_api_enabled"]);
+  expect(calls.map((call) => call.args)).toEqual([
+    { enabled: true },
+    { enabled: false },
+  ]);
+});
+
 interface IpcCall {
   command: string;
   args: Record<string, unknown>;
@@ -328,6 +349,7 @@ async function installMockIpc(page: Page) {
     ];
     const state = {
       prompts,
+      apiEnabled: false,
       playbooks: [] as Array<{
         id: string;
         title: string;
@@ -494,6 +516,15 @@ async function installMockIpc(page: Page) {
             };
           case "get_keyboard_shortcuts":
             return [];
+          case "get_api_enabled":
+            return state.apiEnabled;
+          case "set_api_enabled":
+            state.apiEnabled = Boolean(args.enabled);
+            dbChanged();
+            return {
+              enabled: state.apiEnabled,
+              port: state.apiEnabled ? 41_237 : null,
+            };
           case "list_playbooks":
             return clone(
               state.playbooks.map(({ id, title, description }) => ({

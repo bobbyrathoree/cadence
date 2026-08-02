@@ -91,6 +91,9 @@ export const api = {
     importMarkdownFiles: (files: Array<[string, string]>) => invoke<T.ImportResult>('import_markdown_files', { files }),
   },
   settings: {
+    getApiEnabled: () => invoke<boolean>('get_api_enabled'),
+    setApiEnabled: (enabled: boolean) =>
+      invoke<T.ApiStatus>('set_api_enabled', { enabled }),
     getShortcuts: () => invoke<T.KeyboardShortcut[]>('get_keyboard_shortcuts'),
     updateShortcut: (action: string, binding: string) =>
       invoke<T.KeyboardShortcut[]>('update_keyboard_shortcut', { action, binding }),

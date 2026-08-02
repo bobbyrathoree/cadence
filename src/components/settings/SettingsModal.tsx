@@ -1,5 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { KeyboardShortcut } from '../../lib/types';
+import {
+  SETTINGS_SCHEMA,
+  type ToggleSettingDefinition,
+} from '../../lib/settings';
 import { ShortcutRecorder } from './ShortcutRecorder';
 import { Modal } from '../shared/Modal';
 
@@ -12,6 +16,12 @@ interface Props {
 }
 
 export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, onResetAll }: Props) {
+  const [settingValues, setSettingValues] = useState<Record<string, boolean>>({});
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [updatingSettingId, setUpdatingSettingId] = useState<string | null>(null);
+  const [settingsRetryCounter, setSettingsRetryCounter] = useState(0);
+
   const existingBindings = useMemo(
     () => new Map(shortcuts.filter((s) => s.binding).map((s) => [s.binding, s.action])),
     [shortcuts],
@@ -27,12 +37,61 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
     [shortcuts],
   );
 
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setSettingsLoading(true);
+    setSettingsError(null);
+
+    Promise.all(
+      SETTINGS_SCHEMA.map(async (definition) => [
+        definition.id,
+        await definition.read(),
+      ] as const),
+    )
+      .then((entries) => {
+        if (!cancelled) setSettingValues(Object.fromEntries(entries));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSettingsError(`Couldn't load settings: ${String(error)}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, settingsRetryCounter]);
+
+  async function updateToggle(
+    definition: ToggleSettingDefinition,
+    enabled: boolean,
+  ) {
+    if (updatingSettingId) return;
+    setUpdatingSettingId(definition.id);
+    setSettingsError(null);
+    try {
+      const persisted = await definition.write(enabled);
+      setSettingValues((current) => ({
+        ...current,
+        [definition.id]: persisted,
+      }));
+    } catch (error) {
+      setSettingsError(`Couldn't update setting: ${String(error)}`);
+    } finally {
+      setUpdatingSettingId(null);
+    }
+  }
+
   return (
     <Modal
       id="settings"
       isOpen={isOpen}
       onClose={onClose}
-      ariaLabel="Keyboard Shortcuts"
+      ariaLabel="Settings"
       width={550}
       maxHeight="80vh"
       panelStyle={{
@@ -65,7 +124,7 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
               margin: 0,
             }}
           >
-            Keyboard Shortcuts
+            Settings
           </h2>
           <button
             onClick={onClose}
@@ -101,19 +160,69 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
           className="flex-1 overflow-y-auto"
           style={{ padding: '12px 20px 16px' }}
         >
+          {SETTINGS_SCHEMA.map((definition, index) => (
+            <div
+              key={definition.id}
+              style={{ marginBottom: index === SETTINGS_SCHEMA.length - 1 ? 20 : 16 }}
+            >
+              <div style={sectionHeadingStyle}>{definition.section}</div>
+              <ToggleSettingRow
+                definition={definition}
+                value={settingValues[definition.id] ?? false}
+                disabled={
+                  settingsLoading ||
+                  updatingSettingId !== null
+                }
+                onChange={(enabled) => void updateToggle(definition, enabled)}
+              />
+            </div>
+          ))}
+
+          {settingsLoading && (
+            <div
+              role="status"
+              style={{ marginTop: -12, marginBottom: 16, fontSize: 11, color: 'var(--text-secondary)' }}
+            >
+              Loading settings...
+            </div>
+          )}
+          {settingsError && (
+            <div
+              role="alert"
+              style={{
+                marginTop: -12,
+                marginBottom: 16,
+                padding: '8px 10px',
+                borderRadius: 6,
+                color: '#ff453a',
+                background: 'color-mix(in srgb, #ff453a 8%, transparent)',
+                fontSize: 11,
+              }}
+            >
+              {settingsError}
+              {settingsError.startsWith("Couldn't load") && (
+                <button
+                  type="button"
+                  onClick={() => setSettingsRetryCounter((counter) => counter + 1)}
+                  style={{
+                    marginLeft: 8,
+                    border: 0,
+                    padding: 0,
+                    background: 'transparent',
+                    color: '#ff453a',
+                    fontWeight: 600,
+                  }}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Global section */}
           {globalShortcuts.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div
-                style={{
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-secondary)',
-                  marginBottom: 8,
-                }}
-              >
+              <div style={sectionHeadingStyle}>
                 Global
               </div>
               {globalShortcuts.map((shortcut) => (
@@ -130,16 +239,7 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
           {/* Application section */}
           {appShortcuts.length > 0 && (
             <div>
-              <div
-                style={{
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-secondary)',
-                  marginBottom: 8,
-                }}
-              >
+              <div style={sectionHeadingStyle}>
                 Application
               </div>
               {appShortcuts.map((shortcut) => (
@@ -190,6 +290,89 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
     </Modal>
   );
 }
+
+function ToggleSettingRow({
+  definition,
+  value,
+  disabled,
+  onChange,
+}: {
+  definition: ToggleSettingDefinition;
+  value: boolean;
+  disabled: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  const descriptionId = `setting-${definition.id}-description`;
+
+  return (
+    <div
+      className="flex items-start justify-between gap-5"
+      style={{
+        padding: '10px 0',
+        borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+          {definition.label}
+        </div>
+        <div
+          id={descriptionId}
+          style={{
+            maxWidth: 390,
+            marginTop: 4,
+            fontSize: 11,
+            lineHeight: 1.45,
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {definition.description}
+        </div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-label={definition.label}
+        aria-checked={value}
+        aria-describedby={descriptionId}
+        disabled={disabled}
+        onClick={() => onChange(!value)}
+        style={{
+          width: 36,
+          height: 20,
+          flexShrink: 0,
+          border: 0,
+          borderRadius: 10,
+          padding: 2,
+          marginTop: 1,
+          background: value ? 'var(--accent)' : 'var(--border)',
+          opacity: disabled ? 0.55 : 1,
+        }}
+      >
+        <span
+          style={{
+            display: 'block',
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            background: '#ffffff',
+            transform: value ? 'translateX(16px)' : 'translateX(0)',
+            transition: 'transform 0.15s ease',
+          }}
+        />
+      </button>
+    </div>
+  );
+}
+
+const sectionHeadingStyle: React.CSSProperties = {
+  fontSize: '10px',
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--text-secondary)',
+  marginBottom: 8,
+};
 
 /* ------------------------------------------------------------------ */
 /*  Shortcut row                                                       */

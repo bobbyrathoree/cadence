@@ -35,4 +35,18 @@ describe('paginated IPC transport arguments', () => {
       limit: 100,
     });
   });
+
+  it('uses the lifecycle commands for the local API setting', async () => {
+    mocks.invoke
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce({ enabled: true, port: 41_237 });
+
+    await api.settings.getApiEnabled();
+    await api.settings.setApiEnabled(true);
+
+    expect(mocks.invoke).toHaveBeenNthCalledWith(1, 'get_api_enabled');
+    expect(mocks.invoke).toHaveBeenNthCalledWith(2, 'set_api_enabled', {
+      enabled: true,
+    });
+  });
 });

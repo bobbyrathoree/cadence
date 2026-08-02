@@ -127,3 +127,8 @@ export interface KeyboardShortcut {
   default_binding: string;
   is_global: boolean;
 }
+
+export interface ApiStatus {
+  enabled: boolean;
+  port: number | null;
+}
