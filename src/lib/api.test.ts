@@ -49,4 +49,20 @@ describe('paginated IPC transport arguments', () => {
       enabled: true,
     });
   });
+
+  it('preserves null description clears across both IPC transports', async () => {
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await api.prompts.update('prompt-1', { description: null });
+    await api.playbooks.update('playbook-1', { description: null });
+
+    expect(mocks.invoke).toHaveBeenNthCalledWith(1, 'update_prompt', {
+      id: 'prompt-1',
+      request: { description: null },
+    });
+    expect(mocks.invoke).toHaveBeenNthCalledWith(2, 'update_playbook', {
+      id: 'playbook-1',
+      request: { description: null },
+    });
+  });
 });

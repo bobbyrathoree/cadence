@@ -51,7 +51,26 @@ export function PromptListItem({ item, isSelected, onClick, itemRef }: Props) {
             whiteSpace: 'nowrap',
           }}
         >
-          {item.snippet}
+          {item.snippet_runs.length > 0
+            ? item.snippet_runs.map((run, index) =>
+                run.highlighted ? (
+                  <mark
+                    key={index}
+                    style={{
+                      padding: 0,
+                      borderRadius: 2,
+                      background:
+                        'color-mix(in srgb, var(--accent) 24%, transparent)',
+                      color: 'inherit',
+                    }}
+                  >
+                    {run.text}
+                  </mark>
+                ) : (
+                  <span key={index}>{run.text}</span>
+                ),
+              )
+            : item.snippet}
         </div>
         {item.variant_count > 1 && (
           <span
