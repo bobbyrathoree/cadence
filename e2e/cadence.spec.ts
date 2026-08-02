@@ -65,17 +65,35 @@ test("creates, edits, and reorders a playbook", async ({ page }) => {
     .locator("xpath=../..");
   await builder.getByLabel("Playbook name").fill("Release Workflow Edited");
   await builder.getByRole("button", { name: "Move step 2 up" }).click();
+  const firstStep = builder
+    .getByLabel("Step 1 instructions")
+    .locator("xpath=../..");
+  await firstStep.getByRole("button", { name: "Choice", exact: true }).click();
+  await firstStep
+    .getByRole("button", { name: "Alpha Prompt", exact: true })
+    .click();
   await builder.getByRole("button", { name: "Save Playbook" }).click();
 
   await expect(
     page.getByRole("heading", { name: "Release Workflow Edited" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Start Session" }).click();
+  await expect(page.getByText("In Progress")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Beta Prompt", exact: true })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Copy Step 2" }).click();
+  await expect(page.getByText("Playbook Complete")).toBeVisible();
 
   const mutationCalls = await ipcCalls(page, [
     "create_playbook",
     "add_step",
     "update_playbook",
+    "update_step",
     "reorder_steps",
+    "start_playbook_session",
+    "advance_playbook_step",
   ]);
   expect(
     mutationCalls.find((call) => call.command === "create_playbook")?.args,
@@ -93,11 +111,33 @@ test("creates, edits, and reorders a playbook", async ({ page }) => {
     request: { title: "Release Workflow Edited" },
   });
   expect(
+    mutationCalls.find((call) => call.command === "update_step")?.args,
+  ).toEqual({
+    playbookId: "playbook-1",
+    stepId: "step-2",
+    spec: {
+      step_type: "choice",
+      prompt_id: null,
+      choice_prompt_ids: ["prompt-beta", "prompt-alpha"],
+      instructions: "Review the result",
+    },
+  });
+  expect(
     mutationCalls.find((call) => call.command === "reorder_steps")?.args,
   ).toEqual({
     playbookId: "playbook-1",
     orderedStepIds: ["step-2", "step-1"],
   });
+  expect(
+    mutationCalls.filter(
+      (call) => call.command === "start_playbook_session",
+    ),
+  ).toHaveLength(1);
+  expect(
+    mutationCalls.filter(
+      (call) => call.command === "advance_playbook_step",
+    ),
+  ).toHaveLength(2);
 });
 
 test("search palette copies the keyboard-selected result and closes", async ({
@@ -350,6 +390,11 @@ async function installMockIpc(page: Page) {
     const state = {
       prompts,
       apiEnabled: false,
+      session: {
+        active_playbook_id: null as string | null,
+        current_step: 0,
+        started_at: null as string | null,
+      },
       playbooks: [] as Array<{
         id: string;
         title: string;
@@ -368,12 +413,6 @@ async function installMockIpc(page: Page) {
       nextStep: 1,
     };
     const calls: IpcCall[] = [];
-    const listeners = new Map<
-      number,
-      { event: string; callbackId: number }
-    >();
-    let nextListenerId = 1;
-
     function listItem(prompt: (typeof prompts)[number]) {
       const primary =
         prompt.variants.find(
@@ -419,24 +458,9 @@ async function installMockIpc(page: Page) {
       };
     }
 
-    function emit(event: string, payload: unknown = null) {
-      for (const [eventId, listener] of listeners) {
-        if (listener.event !== event) continue;
-        const callback = window[
-          `_${listener.callbackId}` as keyof Window
-        ] as ((event: { event: string; id: number; payload: unknown }) => void)
-          | undefined;
-        callback?.({ event, id: eventId, payload });
-      }
-    }
-
-    function dbChanged() {
-      emit("db-changed");
-    }
-
     const bridge = {
       calls,
-      emit,
+      emit(_event: string, _payload: unknown = null) {},
       replacePrompt(
         promptId: string,
         update: { title?: string; content?: string },
@@ -456,17 +480,6 @@ async function installMockIpc(page: Page) {
         calls.push({ command, args: clone(args) });
 
         switch (command) {
-          case "plugin:event|listen": {
-            const eventId = nextListenerId++;
-            listeners.set(eventId, {
-              event: String(args.event),
-              callbackId: Number(args.handler),
-            });
-            return eventId;
-          }
-          case "plugin:event|unlisten":
-            listeners.delete(Number(args.eventId));
-            return null;
           case "list_prompts": {
             const filter = args.filter;
             const offset = Number(args.offset ?? 0);
@@ -509,11 +522,27 @@ async function installMockIpc(page: Page) {
           case "list_tags":
             return clone(state.prompts.flatMap((prompt) => prompt.tags));
           case "get_playbook_session":
-            return {
+            return clone(state.session);
+          case "start_playbook_session":
+            state.session = {
+              active_playbook_id: String(args.playbookId),
+              current_step: 0,
+              started_at: timestamp,
+            };
+            dbChanged();
+            return clone(state.session);
+          case "advance_playbook_step":
+            state.session.current_step += 1;
+            dbChanged();
+            return clone(state.session);
+          case "end_playbook_session":
+            state.session = {
               active_playbook_id: null,
               current_step: 0,
               started_at: null,
             };
+            dbChanged();
+            return null;
           case "get_keyboard_shortcuts":
             return [];
           case "get_api_enabled":
@@ -681,6 +710,10 @@ async function installMockIpc(page: Page) {
         }
       },
     };
+
+    function dbChanged() {
+      queueMicrotask(() => bridge.emit("db-changed"));
+    }
 
     window.__CADENCE_E2E__ = bridge;
   });
