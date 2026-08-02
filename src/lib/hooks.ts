@@ -10,12 +10,8 @@ import type {
   KeyboardShortcut,
 } from './types';
 
-/**
- * Fetches prompt list based on the active view.
- */
+/** Fetches the main all-prompts source once for the application shell. */
 export function usePrompts(
-  view: string,
-  collectionId: string | null,
   refreshCounter: number,
 ): { prompts: PromptListItem[]; loading: boolean } {
   const [prompts, setPrompts] = useState<PromptListItem[]>([]);
@@ -27,26 +23,7 @@ export function usePrompts(
 
     async function fetch() {
       try {
-        let result: PromptListItem[];
-
-        if (view === 'collection' && collectionId) {
-          result = await api.collections.getPrompts(collectionId);
-        } else if (view === 'favorites') {
-          const all = await api.prompts.list();
-          result = all.filter((p) => p.is_favorite);
-        } else if (view === 'recents') {
-          const all = await api.prompts.list();
-          result = all
-            .filter((p) => p.last_copied_at !== null)
-            .sort((a, b) => {
-              const ta = a.last_copied_at ?? '';
-              const tb = b.last_copied_at ?? '';
-              return tb.localeCompare(ta);
-            });
-        } else {
-          // 'all' or any default
-          result = await api.prompts.list();
-        }
+        const result = await api.prompts.list();
 
         if (!cancelled) {
           setPrompts(result);
@@ -64,8 +41,47 @@ export function usePrompts(
     }
 
     fetch();
-    return () => { cancelled = true; };
-  }, [view, collectionId, refreshCounter]);
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshCounter]);
+
+  return { prompts, loading };
+}
+
+export function useCollectionPrompts(
+  collectionId: string | null,
+  refreshCounter: number,
+): { prompts: PromptListItem[]; loading: boolean } {
+  const [prompts, setPrompts] = useState<PromptListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!collectionId) {
+      setPrompts([]);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    api.collections
+      .getPrompts(collectionId)
+      .then((result) => {
+        if (!cancelled) setPrompts(result);
+      })
+      .catch((error) => {
+        console.error('useCollectionPrompts error:', error);
+        if (!cancelled) setPrompts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [collectionId, refreshCounter]);
 
   return { prompts, loading };
 }

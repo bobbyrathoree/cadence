@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../../lib/api';
-import { useAppContext } from '../../lib/context';
 
 interface SlicedPrompt {
   title: string;
@@ -9,7 +8,6 @@ interface SlicedPrompt {
 }
 
 export function PromptSlicer() {
-  const { triggerRefresh } = useAppContext();
   const [text, setText] = useState('');
   const [selectedText, setSelectedText] = useState('');
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
@@ -118,8 +116,6 @@ export function PromptSlicer() {
           { title: trimmedTitle, startOffset: selectionRange.start, endOffset: selectionRange.end },
         ]);
       }
-      triggerRefresh();
-
       // Reset form
       setShowForm(false);
       setFloatingPos(null);

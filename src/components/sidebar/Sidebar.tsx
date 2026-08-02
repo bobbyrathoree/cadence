@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { useAppContext } from '../../lib/context';
 import type { ActiveView } from '../../lib/context';
 import {
-  usePrompts,
   useCollections,
   usePlaybooks,
   useTags,
   usePlaybookSession,
 } from '../../lib/hooks';
 import { api } from '../../lib/api';
+import type { PromptListItem } from '../../lib/types';
 import { CollectionItem } from './CollectionItem';
 
 /* ------------------------------------------------------------------ */
@@ -136,7 +136,7 @@ function GearIcon() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
   const {
     activeView,
     setActiveView,
@@ -152,7 +152,6 @@ export function Sidebar() {
 
   const [exporting, setExporting] = useState(false);
 
-  const { prompts } = usePrompts('all', null, refreshCounter);
   const { collections } = useCollections(refreshCounter);
   const { playbooks } = usePlaybooks(refreshCounter);
   const { tags } = useTags(refreshCounter);

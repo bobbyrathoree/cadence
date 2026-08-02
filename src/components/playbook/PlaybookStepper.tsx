@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../../lib/api';
+import { useAppContext } from '../../lib/context';
 import { usePlaybookSession } from '../../lib/hooks';
 import type { PlaybookWithSteps } from '../../lib/types';
 import { PlaybookStep } from './PlaybookStep';
@@ -12,8 +13,8 @@ interface Props {
 export function PlaybookStepper({ playbookId }: Props) {
   const [playbook, setPlaybook] = useState<PlaybookWithSteps | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sessionRefresh, setSessionRefresh] = useState(0);
-  const { session } = usePlaybookSession(sessionRefresh);
+  const { refreshCounter } = useAppContext();
+  const { session } = usePlaybookSession(refreshCounter);
 
   // Fetch the playbook
   useEffect(() => {
@@ -36,7 +37,12 @@ export function PlaybookStepper({ playbookId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [playbookId]);
+  }, [playbookId, refreshCounter]);
+
+  const steps = useMemo(
+    () => [...(playbook?.steps ?? [])].sort((a, b) => a.position - b.position),
+    [playbook],
+  );
 
   const isSessionActive = session?.active_playbook_id === playbookId;
   const currentStep = isSessionActive ? (session?.current_step ?? 0) : -1;
@@ -44,7 +50,6 @@ export function PlaybookStepper({ playbookId }: Props) {
   const handleStartSession = useCallback(async () => {
     try {
       await api.session.start(playbookId);
-      setSessionRefresh((c) => c + 1);
     } catch (err) {
       console.error('Failed to start session:', err);
     }
@@ -53,7 +58,6 @@ export function PlaybookStepper({ playbookId }: Props) {
   const handleEndSession = useCallback(async () => {
     try {
       await api.session.end();
-      setSessionRefresh((c) => c + 1);
     } catch (err) {
       console.error('Failed to end session:', err);
     }
@@ -65,7 +69,6 @@ export function PlaybookStepper({ playbookId }: Props) {
         await navigator.clipboard.writeText(content);
         if (isSessionActive) {
           await api.session.advance();
-          setSessionRefresh((c) => c + 1);
         }
       } catch (err) {
         console.error('Copy/advance failed:', err);
@@ -103,9 +106,9 @@ export function PlaybookStepper({ playbookId }: Props) {
     );
   }
 
-  const steps = playbook.steps.sort((a, b) => a.position - b.position);
   const totalSteps = steps.length;
   const completedSteps = isSessionActive ? Math.min(currentStep, totalSteps) : 0;
+  const progress = totalSteps > 0 ? completedSteps / totalSteps : 0;
   const allComplete = isSessionActive && completedSteps >= totalSteps;
 
   return (
@@ -253,7 +256,7 @@ export function PlaybookStepper({ playbookId }: Props) {
             <div
               className="h-full rounded-full"
               style={{
-                width: `${Math.max(2, (completedSteps / totalSteps) * 100)}%`,
+                width: `${progress * 100}%`,
                 background: allComplete ? '#34c759' : 'var(--accent)',
                 transition: 'width 0.3s ease, background 0.3s ease',
               }}

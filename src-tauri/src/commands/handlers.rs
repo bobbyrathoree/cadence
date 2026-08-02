@@ -29,11 +29,15 @@ pub fn get_api_enabled(state: tauri::State<'_, AppState>) -> Result<bool, String
 pub async fn set_api_enabled(
     enabled: bool,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<ApiStatus, String> {
     let mut api = state.api.lock().await;
-    api.set_enabled(&state.db, enabled)
+    let status = api
+        .set_enabled(&state.db, enabled)
         .await
-        .map_err(|error| error.ipc_message())
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(status)
 }
 
 #[tauri::command]
@@ -541,11 +545,13 @@ pub fn update_keyboard_shortcut(
         }
 
         let _ = app.emit("shortcuts-changed", ());
+        let _ = app.emit("db-changed", ());
         Ok(result)
     } else {
         let result = settings_service::update_shortcut(&mut conn, &action, &binding)
             .map_err(|e| e.to_string())?;
         let _ = app.emit("shortcuts-changed", ());
+        let _ = app.emit("db-changed", ());
         Ok(result)
     }
 }
@@ -578,5 +584,6 @@ pub fn reset_keyboard_shortcuts(
     );
 
     let _ = app.emit("shortcuts-changed", ());
+    let _ = app.emit("db-changed", ());
     Ok(result)
 }

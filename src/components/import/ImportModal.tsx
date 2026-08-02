@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { api } from '../../lib/api';
-import { useAppContext } from '../../lib/context';
 import { PromptSlicer } from './PromptSlicer';
 import type { ImportResult } from '../../lib/types';
 
@@ -12,7 +11,6 @@ interface ImportModalProps {
 type Tab = 'json' | 'markdown' | 'slicer';
 
 export function ImportModal({ isOpen, onClose }: ImportModalProps) {
-  const { triggerRefresh } = useAppContext();
   const [activeTab, setActiveTab] = useState<Tab>('json');
 
   // JSON tab state
@@ -75,7 +73,6 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
     try {
       const res = await api.importExport.importJson(jsonText);
       setResult(res);
-      triggerRefresh();
     } catch (err) {
       setResult({ imported: 0, skipped: 0, errors: [String(err)] });
     } finally {
@@ -122,7 +119,6 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
       const filePairs: Array<[string, string]> = mdFiles.map((f) => [f.name, f.content]);
       const res = await api.importExport.importMarkdownFiles(filePairs);
       setResult(res);
-      triggerRefresh();
     } catch (err) {
       setResult({ imported: 0, skipped: 0, errors: [String(err)] });
     } finally {

@@ -1,12 +1,15 @@
 import { useAppContext } from '../../lib/context';
-import { usePrompts, useSearch } from '../../lib/hooks';
+import { useSearch } from '../../lib/hooks';
+import type { PromptListItem as PromptListItemType } from '../../lib/types';
 import { PromptListItem } from './PromptListItem';
 
-export function PromptList() {
+interface Props {
+  prompts: PromptListItemType[];
+  promptsLoading: boolean;
+}
+
+export function PromptList({ prompts, promptsLoading }: Props) {
   const {
-    activeView,
-    activeCollectionId,
-    refreshCounter,
     searchQuery,
     setSearchQuery,
     selectedPromptId,
@@ -15,11 +18,6 @@ export function PromptList() {
     requestEditExit,
   } = useAppContext();
 
-  const { prompts, loading: promptsLoading } = usePrompts(
-    activeView,
-    activeCollectionId,
-    refreshCounter,
-  );
   const { results: searchResults, loading: searchLoading } = useSearch(searchQuery);
 
   const isSearching = searchQuery.length >= 2;

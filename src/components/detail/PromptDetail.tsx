@@ -97,7 +97,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 export function PromptDetail({ promptId }: Props) {
-  const { isEditing, setIsEditing, triggerRefresh, refreshCounter } = useAppContext();
+  const { isEditing, setIsEditing, refreshCounter } = useAppContext();
   const { prompt, loading } = usePromptDetail(promptId, refreshCounter);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
@@ -184,7 +184,6 @@ export function PromptDetail({ promptId }: Props) {
         return false;
       }
 
-      triggerRefresh();
       dispatchDraft({ type: 'reset' });
       setShowExitConfirm(false);
       setIsEditing(false);
@@ -194,7 +193,7 @@ export function PromptDetail({ promptId }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [prompt, drafts, draftsAreValid, triggerRefresh, setIsEditing]);
+  }, [prompt, drafts, draftsAreValid, setIsEditing]);
 
   const discardAndExit = useCallback(() => {
     dispatchDraft({ type: 'reset' });

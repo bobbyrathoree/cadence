@@ -3,7 +3,7 @@ import { api } from '../../lib/api';
 import { useAppContext } from '../../lib/context';
 
 export function NewPromptForm() {
-  const { setIsCreating, setSelectedPromptId, triggerRefresh } = useAppContext();
+  const { setIsCreating, setSelectedPromptId } = useAppContext();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tagsInput, setTagsInput] = useState('');
@@ -32,7 +32,6 @@ export function NewPromptForm() {
         tags: tags.length > 0 ? tags : undefined,
       });
 
-      triggerRefresh();
       setSelectedPromptId(created.id);
       setIsCreating(false);
     } catch (err) {
@@ -40,7 +39,7 @@ export function NewPromptForm() {
     } finally {
       setSaving(false);
     }
-  }, [title, content, tagsInput, triggerRefresh, setSelectedPromptId, setIsCreating]);
+  }, [title, content, tagsInput, setSelectedPromptId, setIsCreating]);
 
   const handleCancel = useCallback(() => {
     setIsCreating(false);

@@ -3,7 +3,11 @@ import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppProvider, useAppContext } from './lib/context';
 import { api } from './lib/api';
-import { usePrompts, useKeyboardShortcuts } from './lib/hooks';
+import {
+  useCollectionPrompts,
+  useKeyboardShortcuts,
+  usePrompts,
+} from './lib/hooks';
 import { eventToBinding } from './lib/keys';
 import { getPrimaryVariant } from './lib/prompt';
 import { Sidebar } from './components/sidebar/Sidebar';
@@ -32,7 +36,29 @@ function AppContent() {
     setIsSettingsOpen,
   } = useAppContext();
 
-  const { prompts } = usePrompts(activeView, activeCollectionId, refreshCounter);
+  const { prompts: allPrompts, loading: allPromptsLoading } =
+    usePrompts(refreshCounter);
+  const { prompts: collectionPrompts, loading: collectionPromptsLoading } =
+    useCollectionPrompts(
+      activeView === 'collection' ? activeCollectionId : null,
+      refreshCounter,
+    );
+  const prompts = useMemo(() => {
+    if (activeView === 'collection') return collectionPrompts;
+    if (activeView === 'favorites') {
+      return allPrompts.filter((prompt) => prompt.is_favorite);
+    }
+    if (activeView === 'recents') {
+      return allPrompts
+        .filter((prompt) => prompt.last_copied_at !== null)
+        .sort((left, right) =>
+          (right.last_copied_at ?? '').localeCompare(left.last_copied_at ?? ''),
+        );
+    }
+    return allPrompts;
+  }, [activeView, allPrompts, collectionPrompts]);
+  const promptsLoading =
+    activeView === 'collection' ? collectionPromptsLoading : allPromptsLoading;
   const { shortcuts } = useKeyboardShortcuts(refreshCounter);
 
   // Toast state
@@ -89,7 +115,6 @@ function AppContent() {
               .toggleFavorite(selectedPromptId)
               .then((isFav) => {
                 showToast(isFav ? 'Added to Favorites' : 'Removed from Favorites');
-                triggerRefresh();
               })
               .catch((err) => console.error('Toggle favorite failed:', err));
           }
@@ -124,7 +149,6 @@ function AppContent() {
                 await writeText(primaryVariant.content);
                 await api.prompts.recordCopy(prompt.id, primaryVariant.id);
                 showToast('Copied to clipboard');
-                triggerRefresh();
               }
             })
             .catch((err) => console.error('Copy shortcut failed:', err));
@@ -163,21 +187,11 @@ function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPromptId, prompts, shortcutMap, setSelectedPromptId, showToast, triggerRefresh, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen]);
+  }, [selectedPromptId, prompts, shortcutMap, setSelectedPromptId, showToast, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen]);
 
   // Listen for cross-window "db-changed" events from Tauri
   useEffect(() => {
     const unlisten = listen('db-changed', () => {
-      triggerRefresh();
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [triggerRefresh]);
-
-  // Listen for "shortcuts-changed" events from Tauri
-  useEffect(() => {
-    const unlisten = listen('shortcuts-changed', () => {
       triggerRefresh();
     });
     return () => {
@@ -190,8 +204,8 @@ function AppContent() {
       className="flex h-screen overflow-hidden"
       style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
-      <Sidebar />
-      <PromptList />
+      <Sidebar prompts={allPrompts} />
+      <PromptList prompts={prompts} promptsLoading={promptsLoading} />
       <DetailPanel />
       <Toast message={toast.message} visible={toast.visible} onHide={hideToast} />
       <ImportModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
@@ -202,14 +216,12 @@ function AppContent() {
         onUpdateShortcut={async (action, binding) => {
           try {
             await api.settings.updateShortcut(action, binding);
-            triggerRefresh();
           } catch (err) {
             showToast(String(err));
           }
         }}
         onResetAll={async () => {
           await api.settings.resetShortcuts();
-          triggerRefresh();
         }}
       />
     </div>
