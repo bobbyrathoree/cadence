@@ -75,6 +75,7 @@ export interface PlaybookStep {
   position: number;
   step_type: 'single' | 'choice';
   instructions: string | null;
+  choice_prompt_ids: string[];
 }
 
 export interface PlaybookWithSteps extends Playbook {
@@ -82,8 +83,27 @@ export interface PlaybookWithSteps extends Playbook {
 }
 
 export interface PlaybookStepWithPrompt extends PlaybookStep {
-  prompt?: PromptWithVariants;
-  choice_prompts?: PromptWithVariants[];
+  prompt: PromptWithVariants | null;
+  choice_prompts: PromptWithVariants[];
+}
+
+export interface StepSpec {
+  step_type: 'single' | 'choice';
+  prompt_id: string | null;
+  choice_prompt_ids: string[];
+  instructions: string | null;
+}
+
+export interface PromptUsage {
+  playbook_count: number;
+  step_count: number;
+  playbook_titles: string[];
+}
+
+export interface PromptCounts {
+  all: number;
+  favorites: number;
+  recents: number;
 }
 
 export interface ImportResult {

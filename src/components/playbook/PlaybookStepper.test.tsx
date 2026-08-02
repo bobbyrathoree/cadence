@@ -85,7 +85,9 @@ describe('PlaybookStepper copy workflow', () => {
           position: 0,
           step_type: 'single',
           instructions: null,
+          choice_prompt_ids: [],
           prompt,
+          choice_prompts: [],
         },
       ],
     };

@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::error::{AppError, AppResult};
 use crate::models::patch::PatchField;
 use crate::models::prompt::{
-    CreatePromptRequest, Prompt, PromptListItem, PromptUsage, PromptWithVariants,
+    CreatePromptRequest, Prompt, PromptCounts, PromptListItem, PromptUsage, PromptWithVariants,
     UpdatePromptRequest, Variant,
 };
 use crate::services::{tag_service, transaction};
@@ -418,6 +418,26 @@ pub fn get_prompt_usage(conn: &Connection, prompt_id: &str) -> AppResult<PromptU
         step_count: rows.iter().map(|(_, count)| *count).sum(),
         playbook_titles: rows.into_iter().map(|(title, _)| title).collect(),
     })
+}
+
+pub fn get_prompt_counts(conn: &Connection) -> AppResult<PromptCounts> {
+    conn.query_row(
+        "SELECT
+            COUNT(*),
+            COUNT(*) FILTER (WHERE is_favorite = 1),
+            COUNT(*) FILTER (WHERE last_copied_at IS NOT NULL)
+         FROM prompts
+         WHERE deleted_at IS NULL",
+        [],
+        |row| {
+            Ok(PromptCounts {
+                all: row.get(0)?,
+                favorites: row.get(1)?,
+                recents: row.get(2)?,
+            })
+        },
+    )
+    .map_err(AppError::from)
 }
 
 pub fn toggle_favorite(conn: &mut Connection, id: &str) -> AppResult<bool> {

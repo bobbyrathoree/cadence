@@ -13,6 +13,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::server::ApiState;
 use crate::error::{AppError, AppResult};
 use crate::models::collection::CreateCollectionRequest;
+use crate::models::playbook::{StepSpec, UpdatePlaybookRequest};
 use crate::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use crate::models::tag::CreateTagRequest;
 use crate::services::{
@@ -28,10 +29,12 @@ pub fn router() -> Router<Arc<ApiState>> {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/prompts", get(list_prompts).post(create_prompt))
+        .route("/api/v1/prompts/counts", get(get_prompt_counts))
         .route(
             "/api/v1/prompts/{id}",
             get(get_prompt).put(update_prompt).delete(delete_prompt),
         )
+        .route("/api/v1/prompts/{id}/usage", get(get_prompt_usage))
         .route("/api/v1/prompts/{id}/variants", post(add_variant))
         .route(
             "/api/v1/variants/{id}",
@@ -52,12 +55,24 @@ pub fn router() -> Router<Arc<ApiState>> {
             get(get_collection_prompts).post(add_prompt_to_collection),
         )
         .route(
+            "/api/v1/collections/{id}/prompts/{prompt_id}",
+            delete(remove_prompt_from_collection),
+        )
+        .route(
             "/api/v1/playbooks",
             get(list_playbooks).post(create_playbook),
         )
         .route(
             "/api/v1/playbooks/{id}",
-            get(get_playbook).delete(delete_playbook),
+            get(get_playbook)
+                .put(update_playbook)
+                .delete(delete_playbook),
+        )
+        .route("/api/v1/playbooks/{id}/steps", post(add_step))
+        .route("/api/v1/playbooks/{id}/steps/order", put(reorder_steps))
+        .route(
+            "/api/v1/playbooks/{id}/steps/{step_id}",
+            put(update_step).delete(remove_step),
         )
         .route("/api/v1/import", post(import_prompts))
         .route("/api/v1/export", get(export_prompts))
@@ -214,6 +229,26 @@ async fn delete_prompt(State(state): State<Arc<ApiState>>, Path(id): Path<String
     empty_result(run_mutation(state, move |conn| prompt_service::delete_prompt(conn, &id)).await)
 }
 
+async fn get_prompt_usage(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
+    json_result(
+        run_blocking(move || {
+            let conn = lock_db(&state)?;
+            prompt_service::get_prompt_usage(&conn, &id)
+        })
+        .await,
+    )
+}
+
+async fn get_prompt_counts(State(state): State<Arc<ApiState>>) -> Response {
+    json_result(
+        run_blocking(move || {
+            let conn = lock_db(&state)?;
+            prompt_service::get_prompt_counts(&conn)
+        })
+        .await,
+    )
+}
+
 #[derive(Deserialize)]
 struct AddVariantRequest {
     label: String,
@@ -361,6 +396,18 @@ async fn add_prompt_to_collection(
     )
 }
 
+async fn remove_prompt_from_collection(
+    State(state): State<Arc<ApiState>>,
+    Path((id, prompt_id)): Path<(String, String)>,
+) -> Response {
+    empty_result(
+        run_mutation(state, move |conn| {
+            collection_service::remove_prompt_from_collection(conn, &id, &prompt_id)
+        })
+        .await,
+    )
+}
+
 #[derive(Deserialize)]
 struct SearchQuery {
     q: String,
@@ -467,6 +514,75 @@ async fn get_playbook(State(state): State<Arc<ApiState>>, Path(id): Path<String>
         run_blocking(move || {
             let conn = lock_db(&state)?;
             playbook_service::get_playbook(&conn, &id)
+        })
+        .await,
+    )
+}
+
+async fn update_playbook(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdatePlaybookRequest>,
+) -> Response {
+    json_result(
+        run_mutation(state, move |conn| {
+            playbook_service::update_playbook(conn, &id, request)
+        })
+        .await,
+    )
+}
+
+async fn add_step(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    Json(spec): Json<StepSpec>,
+) -> Response {
+    json_result(
+        run_mutation(state, move |conn| {
+            playbook_service::add_step(conn, &id, spec)
+        })
+        .await,
+    )
+}
+
+async fn update_step(
+    State(state): State<Arc<ApiState>>,
+    Path((id, step_id)): Path<(String, String)>,
+    Json(spec): Json<StepSpec>,
+) -> Response {
+    json_result(
+        run_mutation(state, move |conn| {
+            playbook_service::update_step(conn, &id, &step_id, spec)
+        })
+        .await,
+    )
+}
+
+async fn remove_step(
+    State(state): State<Arc<ApiState>>,
+    Path((id, step_id)): Path<(String, String)>,
+) -> Response {
+    empty_result(
+        run_mutation(state, move |conn| {
+            playbook_service::remove_step(conn, &id, &step_id)
+        })
+        .await,
+    )
+}
+
+#[derive(Deserialize)]
+struct ReorderStepsRequest {
+    ordered_step_ids: Vec<String>,
+}
+
+async fn reorder_steps(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    Json(request): Json<ReorderStepsRequest>,
+) -> Response {
+    empty_result(
+        run_mutation(state, move |conn| {
+            playbook_service::reorder_steps(conn, &id, &request.ordered_step_ids)
         })
         .await,
     )

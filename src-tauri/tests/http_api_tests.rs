@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use cadence_lib::api::server::{self, ApiState};
 use cadence_lib::db::schema;
 use cadence_lib::models::collection::CreateCollectionRequest;
+use cadence_lib::models::playbook::StepSpec;
 use cadence_lib::models::prompt::CreatePromptRequest;
 use cadence_lib::services::{collection_service, playbook_service, prompt_service, tag_service};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,6 +20,8 @@ struct TestIds {
     tag: String,
     collection: String,
     playbook: String,
+    step: String,
+    second_step: String,
 }
 
 struct TestServer {
@@ -65,6 +68,15 @@ impl TestServer {
         .unwrap();
         let playbook =
             playbook_service::create_playbook(&mut conn, "Matrix playbook", None).unwrap();
+        let step =
+            playbook_service::add_step(&mut conn, &playbook.id, single_step(&prompt.prompt.id))
+                .unwrap();
+        let second_step = playbook_service::add_step(
+            &mut conn,
+            &playbook.id,
+            single_step(&second_prompt.prompt.id),
+        )
+        .unwrap();
         let tag = tag_service::list_tags(&conn)
             .unwrap()
             .into_iter()
@@ -97,6 +109,8 @@ impl TestServer {
                 tag: tag.id,
                 collection: collection.id,
                 playbook: playbook.id,
+                step: step.step.id,
+                second_step: second_step.step.id,
             },
             shutdown,
             task,
@@ -140,6 +154,15 @@ fn prompt_request(title: &str, tags: Vec<String>) -> CreatePromptRequest {
         variant_label: None,
         tags,
         is_favorite: false,
+    }
+}
+
+fn single_step(prompt_id: &str) -> StepSpec {
+    StepSpec {
+        step_type: "single".to_string(),
+        prompt_id: Some(prompt_id.to_string()),
+        choice_prompt_ids: Vec::new(),
+        instructions: None,
     }
 }
 
@@ -207,6 +230,16 @@ async fn every_dynamic_route_maps_success_not_found_and_bad_auth() {
             success: 204,
         },
         RouteCase {
+            method: "DELETE",
+            real_path: format!(
+                "/api/v1/collections/{}/prompts/{}",
+                ids.collection, ids.second_prompt
+            ),
+            missing_path: format!("/api/v1/collections/missing/prompts/{}", ids.second_prompt),
+            body: String::new(),
+            success: 204,
+        },
+        RouteCase {
             method: "GET",
             real_path: format!("/api/v1/collections/{}/prompts", ids.collection),
             missing_path: "/api/v1/collections/missing/prompts".to_string(),
@@ -229,9 +262,60 @@ async fn every_dynamic_route_maps_success_not_found_and_bad_auth() {
         },
         RouteCase {
             method: "GET",
+            real_path: format!("/api/v1/prompts/{}/usage", ids.prompt),
+            missing_path: "/api/v1/prompts/missing/usage".to_string(),
+            body: String::new(),
+            success: 200,
+        },
+        RouteCase {
+            method: "GET",
             real_path: format!("/api/v1/playbooks/{}", ids.playbook),
             missing_path: "/api/v1/playbooks/missing".to_string(),
             body: String::new(),
+            success: 200,
+        },
+        RouteCase {
+            method: "PUT",
+            real_path: format!("/api/v1/playbooks/{}", ids.playbook),
+            missing_path: "/api/v1/playbooks/missing".to_string(),
+            body: r#"{"title":"Updated matrix playbook","description":null}"#.to_string(),
+            success: 200,
+        },
+        RouteCase {
+            method: "PUT",
+            real_path: format!("/api/v1/playbooks/{}/steps/{}", ids.playbook, ids.step),
+            missing_path: format!("/api/v1/playbooks/{}/steps/missing", ids.playbook),
+            body: format!(
+                r#"{{"step_type":"single","prompt_id":"{}","choice_prompt_ids":[],"instructions":"updated"}}"#,
+                ids.prompt
+            ),
+            success: 200,
+        },
+        RouteCase {
+            method: "DELETE",
+            real_path: format!(
+                "/api/v1/playbooks/{}/steps/{}",
+                ids.playbook, ids.second_step
+            ),
+            missing_path: format!("/api/v1/playbooks/{}/steps/missing", ids.playbook),
+            body: String::new(),
+            success: 204,
+        },
+        RouteCase {
+            method: "PUT",
+            real_path: format!("/api/v1/playbooks/{}/steps/order", ids.playbook),
+            missing_path: "/api/v1/playbooks/missing/steps/order".to_string(),
+            body: format!(r#"{{"ordered_step_ids":["{}"]}}"#, ids.step),
+            success: 204,
+        },
+        RouteCase {
+            method: "POST",
+            real_path: format!("/api/v1/playbooks/{}/steps", ids.playbook),
+            missing_path: "/api/v1/playbooks/missing/steps".to_string(),
+            body: format!(
+                r#"{{"step_type":"single","prompt_id":"{}","choice_prompt_ids":[],"instructions":null}}"#,
+                ids.second_prompt
+            ),
             success: 200,
         },
         RouteCase {
@@ -273,6 +357,27 @@ async fn every_dynamic_route_maps_success_not_found_and_bad_auth() {
         assert_status(&success, case.success, case.method, &case.real_path);
     }
 
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prompt_counts_requires_auth_and_returns_full_dataset_counts() {
+    let _guard = HTTP_TEST_LOCK.lock().await;
+    let server = TestServer::start().await;
+    let unauthorized = server
+        .request("GET", "/api/v1/prompts/counts", "Bearer", "wrong-token", "")
+        .await;
+    assert_status(
+        &unauthorized,
+        401,
+        "GET",
+        "/api/v1/prompts/counts unauthorized",
+    );
+    let response = server
+        .authenticated("GET", "/api/v1/prompts/counts", "")
+        .await;
+    assert_status(&response, 200, "GET", "/api/v1/prompts/counts");
+    assert!(response.contains(r#""all":2"#));
     server.stop().await;
 }
 
@@ -374,6 +479,42 @@ async fn invalid_and_conflict_errors_map_to_400_and_409_without_sql_details() {
         .await;
     assert_status(&invalid, 400, "PUT", "foreign primary variant");
 
+    let invalid_step = server
+        .authenticated(
+            "POST",
+            &format!("/api/v1/playbooks/{}/steps", server.ids.playbook),
+            &format!(
+                r#"{{"step_type":"choice","prompt_id":null,"choice_prompt_ids":["{0}","{0}"],"instructions":null}}"#,
+                server.ids.prompt
+            ),
+        )
+        .await;
+    assert_status(&invalid_step, 400, "POST", "duplicate choice prompts");
+
+    let invalid_step_update = server
+        .authenticated(
+            "PUT",
+            &format!(
+                "/api/v1/playbooks/{}/steps/{}",
+                server.ids.playbook, server.ids.step
+            ),
+            &format!(
+                r#"{{"step_type":"choice","prompt_id":null,"choice_prompt_ids":["{0}","{0}"],"instructions":null}}"#,
+                server.ids.prompt
+            ),
+        )
+        .await;
+    assert_status(&invalid_step_update, 400, "PUT", "duplicate choice prompts");
+
+    let invalid_order = server
+        .authenticated(
+            "PUT",
+            &format!("/api/v1/playbooks/{}/steps/order", server.ids.playbook),
+            r#"{"ordered_step_ids":[]}"#,
+        )
+        .await;
+    assert_status(&invalid_order, 400, "PUT", "incomplete step order");
+
     server
         .state
         .db
@@ -397,6 +538,124 @@ async fn invalid_and_conflict_errors_map_to_400_and_409_without_sql_details() {
     assert_status(&conflict, 409, "PUT", "constraint conflict");
     assert!(!conflict.contains("secret prompts schema detail"));
     assert!(!conflict.contains("CREATE TRIGGER"));
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn patch_routes_clear_descriptions_with_json_null() {
+    let _guard = HTTP_TEST_LOCK.lock().await;
+    let server = TestServer::start().await;
+
+    for body in [
+        r#"{"description":"prompt description"}"#,
+        r#"{"description":null}"#,
+    ] {
+        let response = server
+            .authenticated(
+                "PUT",
+                &format!("/api/v1/prompts/{}", server.ids.prompt),
+                body,
+            )
+            .await;
+        assert_status(&response, 204, "PUT", "prompt description patch");
+    }
+    let prompt = server
+        .authenticated("GET", &format!("/api/v1/prompts/{}", server.ids.prompt), "")
+        .await;
+    assert!(prompt.contains(r#""description":null"#));
+
+    let set_playbook = server
+        .authenticated(
+            "PUT",
+            &format!("/api/v1/playbooks/{}", server.ids.playbook),
+            r#"{"description":"playbook description"}"#,
+        )
+        .await;
+    assert_status(&set_playbook, 200, "PUT", "set playbook description");
+    assert!(set_playbook.contains(r#""description":"playbook description""#));
+
+    let clear_playbook = server
+        .authenticated(
+            "PUT",
+            &format!("/api/v1/playbooks/{}", server.ids.playbook),
+            r#"{"description":null}"#,
+        )
+        .await;
+    assert_status(&clear_playbook, 200, "PUT", "clear playbook description");
+    assert!(clear_playbook.contains(r#""description":null"#));
+
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn active_playbook_structural_routes_return_conflict_and_parent_mismatch_stays_not_found() {
+    let _guard = HTTP_TEST_LOCK.lock().await;
+    let server = TestServer::start().await;
+    let other_playbook = {
+        let mut conn = server.state.db.lock().unwrap();
+        let other = playbook_service::create_playbook(&mut conn, "Other", None).unwrap();
+        playbook_service::start_session(&mut conn, &server.ids.playbook).unwrap();
+        other.id
+    };
+    let step_body = format!(
+        r#"{{"step_type":"single","prompt_id":"{}","choice_prompt_ids":[],"instructions":null}}"#,
+        server.ids.prompt
+    );
+
+    let mismatch = server
+        .authenticated(
+            "PUT",
+            &format!(
+                "/api/v1/playbooks/{other_playbook}/steps/{}",
+                server.ids.step
+            ),
+            &step_body,
+        )
+        .await;
+    assert_status(&mismatch, 404, "PUT", "mismatched step parent");
+
+    let cases = [
+        (
+            "POST",
+            format!("/api/v1/playbooks/{}/steps", server.ids.playbook),
+            step_body.clone(),
+        ),
+        (
+            "PUT",
+            format!(
+                "/api/v1/playbooks/{}/steps/{}",
+                server.ids.playbook, server.ids.step
+            ),
+            step_body,
+        ),
+        (
+            "DELETE",
+            format!(
+                "/api/v1/playbooks/{}/steps/{}",
+                server.ids.playbook, server.ids.step
+            ),
+            String::new(),
+        ),
+        (
+            "PUT",
+            format!("/api/v1/playbooks/{}/steps/order", server.ids.playbook),
+            format!(
+                r#"{{"ordered_step_ids":["{}","{}"]}}"#,
+                server.ids.step, server.ids.second_step
+            ),
+        ),
+        (
+            "DELETE",
+            format!("/api/v1/playbooks/{}", server.ids.playbook),
+            String::new(),
+        ),
+    ];
+    for (method, path, body) in cases {
+        let response = server.authenticated(method, &path, &body).await;
+        assert_status(&response, 409, method, &path);
+        assert!(response.contains("End the active session to edit this playbook"));
+    }
+
     server.stop().await;
 }
 

@@ -18,6 +18,8 @@ export const api = {
     update: (id: string, request: Record<string, unknown>) =>
       invoke('update_prompt', { id, request }),
     delete: (id: string) => invoke('delete_prompt', { id }),
+    usage: (id: string) => invoke<T.PromptUsage>('get_prompt_usage', { id }),
+    counts: () => invoke<T.PromptCounts>('get_prompt_counts'),
     toggleFavorite: (id: string) => invoke<boolean>('toggle_favorite', { id }),
     recordCopy: (promptId: string, variantId?: string) =>
       invoke<string>('record_copy', { promptId, variantId }),
@@ -44,6 +46,10 @@ export const api = {
       invoke<T.Collection>('create_collection', { request }),
     getPrompts: (collectionId: string) =>
       invoke<T.PromptListItem[]>('get_collection_prompts', { collectionId }),
+    addPrompt: (collectionId: string, promptId: string) =>
+      invoke('add_prompt_to_collection', { collectionId, promptId }),
+    removePrompt: (collectionId: string, promptId: string) =>
+      invoke('remove_prompt_from_collection', { collectionId, promptId }),
   },
   search: (query: string) => invoke<T.PromptListItem[]>('search_prompts', { query }),
   playbooks: {
@@ -51,8 +57,17 @@ export const api = {
     get: (id: string) => invoke<T.PlaybookWithSteps>('get_playbook', { id }),
     create: (title: string, description?: string) =>
       invoke<T.Playbook>('create_playbook', { title, description }),
-    addStep: (playbookId: string, opts: { promptId?: string; stepType: string; instructions?: string; choicePromptIds?: string[] }) =>
-      invoke<T.PlaybookStep>('add_playbook_step', { playbookId, ...opts }),
+    update: (id: string, request: { title?: string; description?: string | null }) =>
+      invoke<T.Playbook>('update_playbook', { id, request }),
+    delete: (id: string) => invoke('delete_playbook', { id }),
+    addStep: (playbookId: string, spec: T.StepSpec) =>
+      invoke<T.PlaybookStepWithPrompt>('add_step', { playbookId, spec }),
+    updateStep: (playbookId: string, stepId: string, spec: T.StepSpec) =>
+      invoke<T.PlaybookStepWithPrompt>('update_step', { playbookId, stepId, spec }),
+    removeStep: (playbookId: string, stepId: string) =>
+      invoke('remove_step', { playbookId, stepId }),
+    reorderSteps: (playbookId: string, orderedStepIds: string[]) =>
+      invoke('reorder_steps', { playbookId, orderedStepIds }),
   },
   session: {
     get: () => invoke<T.PlaybookSession>('get_playbook_session'),

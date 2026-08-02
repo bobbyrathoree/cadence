@@ -72,6 +72,13 @@ pub struct PromptUsage {
     pub playbook_titles: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptCounts {
+    pub all: u32,
+    pub favorites: u32,
+    pub recents: u32,
+}
+
 /// Lightweight prompt representation for list views.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptListItem {

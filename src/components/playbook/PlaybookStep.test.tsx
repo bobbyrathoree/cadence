@@ -60,6 +60,9 @@ function step(
     position: 0,
     step_type: 'single',
     instructions: null,
+    choice_prompt_ids: [],
+    prompt: null,
+    choice_prompts: [],
     ...overrides,
   };
 }

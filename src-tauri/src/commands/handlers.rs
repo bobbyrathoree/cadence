@@ -5,9 +5,11 @@ use crate::api::lifecycle::ApiStatus;
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::playbook::{
     Playbook, PlaybookSession, PlaybookStepWithPrompt, PlaybookWithSteps, StepSpec,
+    UpdatePlaybookRequest,
 };
 use crate::models::prompt::{
-    CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
+    CreatePromptRequest, PromptCounts, PromptListItem, PromptUsage, PromptWithVariants,
+    UpdatePromptRequest, Variant,
 };
 use crate::models::settings::{
     KeyboardShortcut, DEFAULT_GLOBAL_SEARCH_SHORTCUT, GLOBAL_SEARCH_ACTION,
@@ -259,6 +261,40 @@ pub fn create_collection(
 }
 
 #[tauri::command]
+pub fn add_prompt_to_collection(
+    collection_id: String,
+    prompt_id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    collection_service::add_prompt_to_collection(&mut conn, &collection_id, &prompt_id)
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_prompt_from_collection(
+    collection_id: String,
+    prompt_id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    collection_service::remove_prompt_from_collection(&mut conn, &collection_id, &prompt_id)
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_collection_prompts(
     collection_id: String,
     state: tauri::State<'_, AppState>,
@@ -298,6 +334,27 @@ pub fn record_copy(
         .map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
     Ok(result)
+}
+
+#[tauri::command]
+pub fn get_prompt_usage(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<PromptUsage, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    prompt_service::get_prompt_usage(&conn, &id).map_err(|error| error.ipc_message())
+}
+
+#[tauri::command]
+pub fn get_prompt_counts(state: tauri::State<'_, AppState>) -> Result<PromptCounts, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    prompt_service::get_prompt_counts(&conn).map_err(|error| error.ipc_message())
 }
 
 // ------------------------------------------------------------------
@@ -343,12 +400,41 @@ pub fn create_playbook(
 }
 
 #[tauri::command]
-pub fn add_playbook_step(
+pub fn update_playbook(
+    id: String,
+    request: UpdatePlaybookRequest,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Playbook, String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    let playbook = playbook_service::update_playbook(&mut conn, &id, request)
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(playbook)
+}
+
+#[tauri::command]
+pub fn delete_playbook(
+    id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    playbook_service::delete_playbook(&mut conn, &id).map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn add_step(
     playbook_id: String,
-    prompt_id: Option<String>,
-    step_type: String,
-    instructions: Option<String>,
-    choice_prompt_ids: Option<Vec<String>>,
+    spec: StepSpec,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PlaybookStepWithPrompt, String> {
@@ -356,19 +442,62 @@ pub fn add_playbook_step(
         .db
         .lock()
         .map_err(|_| "Database is unavailable".to_string())?;
-    let result = playbook_service::add_step(
-        &mut conn,
-        &playbook_id,
-        StepSpec {
-            step_type,
-            prompt_id,
-            choice_prompt_ids: choice_prompt_ids.unwrap_or_default(),
-            instructions,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    let result = playbook_service::add_step(&mut conn, &playbook_id, spec)
+        .map_err(|error| error.ipc_message())?;
     let _ = app.emit("db-changed", ());
     Ok(result)
+}
+
+#[tauri::command]
+pub fn update_step(
+    playbook_id: String,
+    step_id: String,
+    spec: StepSpec,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<PlaybookStepWithPrompt, String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    let result = playbook_service::update_step(&mut conn, &playbook_id, &step_id, spec)
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn remove_step(
+    playbook_id: String,
+    step_id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    playbook_service::remove_step(&mut conn, &playbook_id, &step_id)
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_steps(
+    playbook_id: String,
+    ordered_step_ids: Vec<String>,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    playbook_service::reorder_steps(&mut conn, &playbook_id, &ordered_step_ids)
+        .map_err(|error| error.ipc_message())?;
+    let _ = app.emit("db-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
