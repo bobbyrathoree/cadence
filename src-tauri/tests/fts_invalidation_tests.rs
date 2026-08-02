@@ -1,4 +1,5 @@
 use cadence_lib::db::schema;
+use cadence_lib::models::patch::PatchField;
 use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use cadence_lib::services::{prompt_service, search_service, tag_service};
 
@@ -48,7 +49,7 @@ fn title_change_evicts_old_terms() {
         &prompt.prompt.id,
         UpdatePromptRequest {
             title: Some("Verdant title".to_string()),
-            description: None,
+            description: PatchField::Keep,
             is_favorite: None,
             is_pinned: None,
             primary_variant_id: None,
@@ -76,7 +77,7 @@ fn description_change_evicts_old_terms() {
         &prompt.prompt.id,
         UpdatePromptRequest {
             title: None,
-            description: Some("Silver description".to_string()),
+            description: PatchField::Set("Silver description".to_string()),
             is_favorite: None,
             is_pinned: None,
             primary_variant_id: None,
@@ -135,7 +136,7 @@ fn primary_variant_switch_replaces_indexed_content() {
         &prompt.prompt.id,
         UpdatePromptRequest {
             title: None,
-            description: None,
+            description: PatchField::Keep,
             is_favorite: None,
             is_pinned: None,
             primary_variant_id: Some(replacement.id),

@@ -3,7 +3,9 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::api::lifecycle::ApiStatus;
 use crate::models::collection::{Collection, CreateCollectionRequest};
-use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
+use crate::models::playbook::{
+    Playbook, PlaybookSession, PlaybookStepWithPrompt, PlaybookWithSteps, StepSpec,
+};
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
@@ -349,7 +351,7 @@ pub fn add_playbook_step(
     choice_prompt_ids: Option<Vec<String>>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
-) -> Result<PlaybookStep, String> {
+) -> Result<PlaybookStepWithPrompt, String> {
     let mut conn = state
         .db
         .lock()
@@ -357,10 +359,12 @@ pub fn add_playbook_step(
     let result = playbook_service::add_step(
         &mut conn,
         &playbook_id,
-        prompt_id.as_deref(),
-        &step_type,
-        instructions.as_deref(),
-        choice_prompt_ids,
+        StepSpec {
+            step_type,
+            prompt_id,
+            choice_prompt_ids: choice_prompt_ids.unwrap_or_default(),
+            instructions,
+        },
     )
     .map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());

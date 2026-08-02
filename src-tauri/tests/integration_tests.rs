@@ -4,6 +4,8 @@
 /// applied, then exercises the service layer directly.
 use cadence_lib::db::schema;
 use cadence_lib::models::collection::CreateCollectionRequest;
+use cadence_lib::models::patch::PatchField;
+use cadence_lib::models::playbook::{StepSpec, UpdatePlaybookRequest};
 use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use cadence_lib::services::{
     collection_service, import_export, playbook_service, prompt_service, search_service,
@@ -84,7 +86,7 @@ fn test_prompt_crud() {
     // --- Update ---
     let update_req = UpdatePromptRequest {
         title: Some("Updated Title".to_string()),
-        description: None,
+        description: PatchField::Keep,
         is_favorite: None,
         is_pinned: None,
         primary_variant_id: None,
@@ -200,7 +202,7 @@ fn test_prompt_cannot_adopt_foreign_primary_variant() {
         &first.prompt.id,
         UpdatePromptRequest {
             title: None,
-            description: None,
+            description: PatchField::Keep,
             is_favorite: None,
             is_pinned: None,
             primary_variant_id: Some(foreign_variant_id),
@@ -690,35 +692,44 @@ fn test_playbook_operations() {
     let step1 = playbook_service::add_step(
         &mut conn,
         &playbook.id,
-        Some(&p1.prompt.id),
-        "single",
-        None,
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(p1.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: None,
+        },
     )
     .unwrap();
-    assert_eq!(step1.position, 0, "First step should be at position 0");
+    assert_eq!(step1.step.position, 0, "First step should be at position 0");
 
     let step2 = playbook_service::add_step(
         &mut conn,
         &playbook.id,
-        Some(&p2.prompt.id),
-        "single",
-        None,
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(p2.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: None,
+        },
     )
     .unwrap();
-    assert_eq!(step2.position, 1, "Second step should be at position 1");
+    assert_eq!(
+        step2.step.position, 1,
+        "Second step should be at position 1"
+    );
 
     let step3 = playbook_service::add_step(
         &mut conn,
         &playbook.id,
-        None,
-        "instruction",
-        Some("Review and refine the output"),
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(p1.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: Some("Review and refine the output".to_string()),
+        },
     )
     .unwrap();
-    assert_eq!(step3.position, 2, "Third step should be at position 2");
+    assert_eq!(step3.step.position, 2, "Third step should be at position 2");
 
     // --- Get playbook with steps ---
     let fetched = playbook_service::get_playbook(&conn, &playbook.id).unwrap();
@@ -740,13 +751,10 @@ fn test_playbook_operations() {
         "Step 1 Prompt",
         "Hydrated prompt title should match"
     );
-    assert!(
-        fetched.steps[2].prompt.is_none(),
-        "Instruction step should not have a hydrated prompt"
-    );
+    assert!(fetched.steps[2].prompt.is_some());
 
     // --- Remove a step and verify reordering ---
-    playbook_service::remove_step(&mut conn, &step2.id).unwrap();
+    playbook_service::remove_step(&mut conn, &playbook.id, &step2.step.id).unwrap();
     let fetched = playbook_service::get_playbook(&conn, &playbook.id).unwrap();
     assert_eq!(fetched.steps.len(), 2, "Should have 2 steps after removal");
     assert_eq!(
@@ -779,19 +787,23 @@ fn test_playbook_session() {
     playbook_service::add_step(
         &mut conn,
         &playbook.id,
-        Some(&p1.prompt.id),
-        "single",
-        None,
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(p1.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: None,
+        },
     )
     .unwrap();
     playbook_service::add_step(
         &mut conn,
         &playbook.id,
-        Some(&p2.prompt.id),
-        "single",
-        None,
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(p2.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: None,
+        },
     )
     .unwrap();
 
@@ -1134,7 +1146,7 @@ fn test_update_prompt_favorite_toggle() {
         prompt_id,
         UpdatePromptRequest {
             title: None,
-            description: None,
+            description: PatchField::Keep,
             is_favorite: Some(true),
             is_pinned: None,
             primary_variant_id: None,
@@ -1153,7 +1165,7 @@ fn test_update_prompt_favorite_toggle() {
         prompt_id,
         UpdatePromptRequest {
             title: None,
-            description: None,
+            description: PatchField::Keep,
             is_favorite: Some(false),
             is_pinned: None,
             primary_variant_id: None,
@@ -1223,8 +1235,15 @@ fn test_playbook_list_and_update() {
     assert_eq!(list.len(), 2, "Should list 2 playbooks");
 
     // Update playbook title
-    playbook_service::update_playbook(&mut conn, &pb1.id, Some("Updated Playbook A"), None)
-        .unwrap();
+    playbook_service::update_playbook(
+        &mut conn,
+        &pb1.id,
+        UpdatePlaybookRequest {
+            title: Some("Updated Playbook A".to_string()),
+            description: PatchField::Keep,
+        },
+    )
+    .unwrap();
     let fetched = playbook_service::get_playbook(&conn, &pb1.id).unwrap();
     assert_eq!(
         fetched.playbook.title, "Updated Playbook A",
@@ -1295,7 +1314,7 @@ fn test_search_after_update() {
         prompt_id,
         UpdatePromptRequest {
             title: Some("Updated About Giraffes".to_string()),
-            description: None,
+            description: PatchField::Keep,
             is_favorite: None,
             is_pinned: None,
             primary_variant_id: None,

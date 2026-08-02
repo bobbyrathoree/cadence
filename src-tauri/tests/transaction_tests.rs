@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 use cadence_lib::db::{self, schema};
 use cadence_lib::error::AppError;
 use cadence_lib::models::collection::CreateCollectionRequest;
+use cadence_lib::models::patch::PatchField;
+use cadence_lib::models::playbook::{StepSpec, UpdatePlaybookRequest};
 use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use cadence_lib::seed;
 use cadence_lib::services::{
@@ -119,13 +121,16 @@ fn remove_step_failure_restores_step_and_positions() {
     let playbook = playbook_service::create_playbook(&mut conn, "Atomic", None).unwrap();
     let steps = (0..3)
         .map(|index| {
+            let prompt_id = create_prompt(&mut conn, &format!("Step {index}"));
             playbook_service::add_step(
                 &mut conn,
                 &playbook.id,
-                None,
-                "instruction",
-                Some(&format!("step {index}")),
-                None,
+                StepSpec {
+                    step_type: "single".to_string(),
+                    prompt_id: Some(prompt_id),
+                    choice_prompt_ids: Vec::new(),
+                    instructions: Some(format!("step {index}")),
+                },
             )
             .unwrap()
         })
@@ -139,7 +144,7 @@ fn remove_step_failure_restores_step_and_positions() {
     )
     .unwrap();
 
-    assert!(playbook_service::remove_step(&mut conn, &steps[1].id).is_err());
+    assert!(playbook_service::remove_step(&mut conn, &playbook.id, &steps[1].step.id).is_err());
     let current = playbook_service::get_playbook(&conn, &playbook.id).unwrap();
     assert_eq!(current.steps.len(), 3);
     assert_eq!(
@@ -186,7 +191,7 @@ fn targeted_mutations_return_not_found_for_unknown_ids() {
         "missing",
         UpdatePromptRequest {
             title: Some("new".to_string()),
-            description: None,
+            description: PatchField::Keep,
             is_favorite: None,
             is_pinned: None,
             primary_variant_id: None,
@@ -210,11 +215,15 @@ fn targeted_mutations_return_not_found_for_unknown_ids() {
     assert_not_found(playbook_service::update_playbook(
         &mut conn,
         "missing",
-        Some("title"),
-        None,
+        UpdatePlaybookRequest {
+            title: Some("title".to_string()),
+            description: PatchField::Keep,
+        },
     ));
     assert_not_found(playbook_service::delete_playbook(&mut conn, "missing"));
-    assert_not_found(playbook_service::remove_step(&mut conn, "missing"));
+    assert_not_found(playbook_service::remove_step(
+        &mut conn, "missing", "missing",
+    ));
     assert_not_found(playbook_service::start_session(&mut conn, "missing"));
     assert_not_found(playbook_service::advance_step(&mut conn));
 }

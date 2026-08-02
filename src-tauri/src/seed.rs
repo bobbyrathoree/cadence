@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 
 use crate::error::AppResult;
+use crate::models::playbook::StepSpec;
 use crate::models::prompt::CreatePromptRequest;
 use crate::services::{playbook_service, prompt_service, settings_service, transaction};
 
@@ -269,40 +270,51 @@ Start by exploring the starter prompts, then edit them to match your projects. D
     playbook_service::add_step_tx(
         conn,
         &playbook.id,
-        Some(&project_memory.prompt.id),
-        "single",
-        Some("Start here. This orients the model with your project's architecture and codebase."),
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(project_memory.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: Some(
+                "Start here. This orients the model with your project's architecture and codebase."
+                    .to_string(),
+            ),
+        },
     )?;
 
     // Step 2: Session Operating Prompt
     playbook_service::add_step_tx(
         conn,
         &playbook.id,
-        Some(&session_op.prompt.id),
-        "single",
-        Some("Sets the session mode. The model will shift between architectural, diagnostic, and creative thinking."),
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(session_op.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: Some("Sets the session mode. The model will shift between architectural, diagnostic, and creative thinking.".to_string()),
+        },
     )?;
 
     // Step 3: Founder Mode (any mode prompt)
     playbook_service::add_step_tx(
         conn,
         &playbook.id,
-        Some(&founder_mode.prompt.id),
-        "single",
-        Some("Choose a focus area for this session. You can swap this step with any mode prompt from your library."),
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(founder_mode.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: Some("Choose a focus area for this session. You can swap this step with any mode prompt from your library.".to_string()),
+        },
     )?;
 
     // Step 4: Session Knowledge Transfer
     playbook_service::add_step_tx(
         conn,
         &playbook.id,
-        Some(&knowledge_transfer.prompt.id),
-        "single",
-        Some("Always end with this. It captures insights and creates a handoff for your next session."),
-        None,
+        StepSpec {
+            step_type: "single".to_string(),
+            prompt_id: Some(knowledge_transfer.prompt.id.clone()),
+            choice_prompt_ids: Vec::new(),
+            instructions: Some("Always end with this. It captures insights and creates a handoff for your next session.".to_string()),
+        },
     )?;
 
     Ok(())

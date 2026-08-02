@@ -1,8 +1,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{AppError, AppResult};
+use crate::models::patch::PatchField;
 use crate::models::prompt::{
-    CreatePromptRequest, Prompt, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
+    CreatePromptRequest, Prompt, PromptListItem, PromptUsage, PromptWithVariants,
+    UpdatePromptRequest, Variant,
 };
 use crate::services::{tag_service, transaction};
 
@@ -296,7 +298,7 @@ pub(crate) fn update_prompt_tx(
     ensure_prompt_exists(conn, id)?;
     let now = chrono::Utc::now().to_rfc3339();
     let should_reindex = request.title.is_some()
-        || request.description.is_some()
+        || !request.description.is_keep()
         || request.primary_variant_id.is_some();
 
     if let Some(ref title) = request.title {
@@ -309,15 +311,28 @@ pub(crate) fn update_prompt_tx(
             .map_err(AppError::from)?;
         transaction::expect_one(affected)?;
     }
-    if let Some(ref description) = request.description {
-        let affected = conn
-            .execute(
-                "UPDATE prompts SET description = ?1, updated_at = ?2
-                 WHERE id = ?3 AND deleted_at IS NULL",
-                params![description, now, id],
-            )
-            .map_err(AppError::from)?;
-        transaction::expect_one(affected)?;
+    match &request.description {
+        PatchField::Keep => {}
+        PatchField::Clear => {
+            let affected = conn
+                .execute(
+                    "UPDATE prompts SET description = NULL, updated_at = ?1
+                     WHERE id = ?2 AND deleted_at IS NULL",
+                    params![now, id],
+                )
+                .map_err(AppError::from)?;
+            transaction::expect_one(affected)?;
+        }
+        PatchField::Set(description) => {
+            let affected = conn
+                .execute(
+                    "UPDATE prompts SET description = ?1, updated_at = ?2
+                     WHERE id = ?3 AND deleted_at IS NULL",
+                    params![description, now, id],
+                )
+                .map_err(AppError::from)?;
+            transaction::expect_one(affected)?;
+        }
     }
     if let Some(is_favorite) = request.is_favorite {
         let affected = conn
@@ -352,7 +367,7 @@ pub(crate) fn update_prompt_tx(
     }
 
     if request.title.is_none()
-        && request.description.is_none()
+        && request.description.is_keep()
         && request.is_favorite.is_none()
         && request.is_pinned.is_none()
         && request.primary_variant_id.is_none()
@@ -370,6 +385,39 @@ pub(crate) fn update_prompt_tx(
         update_fts_index_tx(conn, id)?;
     }
     Ok(())
+}
+
+pub fn get_prompt_usage(conn: &Connection, prompt_id: &str) -> AppResult<PromptUsage> {
+    ensure_prompt_exists(conn, prompt_id)?;
+    let rows = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT pb.title, COUNT(ps.id)
+                 FROM playbooks pb
+                 JOIN playbook_steps ps ON ps.playbook_id = pb.id
+                 WHERE ps.prompt_id = ?1
+                    OR INSTR(
+                        ',' || COALESCE(ps.choice_prompt_ids, '') || ',',
+                        ',' || ?1 || ','
+                    ) > 0
+                 GROUP BY pb.id, pb.title
+                 ORDER BY pb.title ASC, pb.id ASC",
+            )
+            .map_err(AppError::from)?;
+        let mapped = stmt
+            .query_map(params![prompt_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            })
+            .map_err(AppError::from)?;
+        mapped
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(AppError::from)?
+    };
+    Ok(PromptUsage {
+        playbook_count: rows.len() as u32,
+        step_count: rows.iter().map(|(_, count)| *count).sum(),
+        playbook_titles: rows.into_iter().map(|(title, _)| title).collect(),
+    })
 }
 
 pub fn toggle_favorite(conn: &mut Connection, id: &str) -> AppResult<bool> {

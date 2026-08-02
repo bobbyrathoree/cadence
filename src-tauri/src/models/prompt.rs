@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::patch::PatchField;
 use super::tag::Tag;
 
 /// A prompt record from the `prompts` table.
@@ -57,10 +58,18 @@ pub struct CreatePromptRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdatePromptRequest {
     pub title: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "PatchField::is_keep")]
+    pub description: PatchField<String>,
     pub is_favorite: Option<bool>,
     pub is_pinned: Option<bool>,
     pub primary_variant_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptUsage {
+    pub playbook_count: u32,
+    pub step_count: u32,
+    pub playbook_titles: Vec<String>,
 }
 
 /// Lightweight prompt representation for list views.

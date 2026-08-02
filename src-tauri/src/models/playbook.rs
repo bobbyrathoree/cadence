@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::patch::PatchField;
 use super::prompt::PromptWithVariants;
 
 /// A playbook record from the `playbooks` table.
@@ -19,9 +20,25 @@ pub struct PlaybookStep {
     pub playbook_id: String,
     pub prompt_id: Option<String>,
     pub position: i64,
-    pub step_type: Option<String>,
+    pub step_type: String,
     pub instructions: Option<String>,
-    pub choice_prompt_ids: Option<String>,
+    pub choice_prompt_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepSpec {
+    pub step_type: String,
+    pub prompt_id: Option<String>,
+    #[serde(default)]
+    pub choice_prompt_ids: Vec<String>,
+    pub instructions: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdatePlaybookRequest {
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "PatchField::is_keep")]
+    pub description: PatchField<String>,
 }
 
 /// A playbook together with its steps (each enriched with prompt data).
@@ -38,7 +55,7 @@ pub struct PlaybookStepWithPrompt {
     #[serde(flatten)]
     pub step: PlaybookStep,
     pub prompt: Option<PromptWithVariants>,
-    pub choice_prompts: Option<Vec<PromptWithVariants>>,
+    pub choice_prompts: Vec<PromptWithVariants>,
 }
 
 /// The singleton session tracking playbook progress from `playbook_sessions`.
