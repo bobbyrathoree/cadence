@@ -269,6 +269,7 @@ pub fn list_prompts(conn: &Connection, limit: i64, offset: i64) -> AppResult<Vec
             title,
             description,
             snippet,
+            snippet_runs: Vec::new(),
             is_favorite,
             variant_count,
             copy_count,

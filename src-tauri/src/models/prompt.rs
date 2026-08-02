@@ -70,9 +70,17 @@ pub struct PromptListItem {
     pub title: String,
     pub description: Option<String>,
     pub snippet: String,
+    #[serde(default)]
+    pub snippet_runs: Vec<SnippetRun>,
     pub is_favorite: bool,
     pub variant_count: i64,
     pub copy_count: i64,
     pub last_copied_at: Option<String>,
     pub tags: Vec<Tag>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnippetRun {
+    pub text: String,
+    pub highlighted: bool,
 }

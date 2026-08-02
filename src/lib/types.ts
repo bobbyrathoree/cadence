@@ -39,11 +39,17 @@ export interface PromptListItem {
   title: string;
   description: string | null;
   snippet: string;
+  snippet_runs: SnippetRun[];
   is_favorite: boolean;
   variant_count: number;
   copy_count: number;
   last_copied_at: string | null;
   tags: Tag[];
+}
+
+export interface SnippetRun {
+  text: string;
+  highlighted: boolean;
 }
 
 export interface Collection {
