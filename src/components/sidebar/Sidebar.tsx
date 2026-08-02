@@ -153,6 +153,10 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
   } = useAppContext();
 
   const [exporting, setExporting] = useState(false);
+  const [creatingCollection, setCreatingCollection] = useState(false);
+  const [collectionName, setCollectionName] = useState('');
+  const [collectionError, setCollectionError] = useState<string | null>(null);
+  const [savingCollection, setSavingCollection] = useState(false);
 
   const { collections } = useCollections(refreshCounter);
   const { playbooks } = usePlaybooks(refreshCounter);
@@ -191,6 +195,29 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
       setActiveCollectionId(null);
       setPlaybookBuilderMode(null);
     });
+  }
+
+  async function createManualCollection() {
+    const name = collectionName.trim();
+    if (!name || savingCollection) return;
+    setSavingCollection(true);
+    setCollectionError(null);
+    try {
+      const collection = await api.collections.create({
+        name,
+        is_smart: false,
+      });
+      setCollectionName('');
+      setCreatingCollection(false);
+      setActiveView('collection');
+      setActiveCollectionId(collection.id);
+      setActivePlaybookId(null);
+      setPlaybookBuilderMode(null);
+    } catch (error) {
+      setCollectionError(String(error));
+    } finally {
+      setSavingCollection(false);
+    }
   }
 
   return (
@@ -250,7 +277,81 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
 
       {/* Regular Collections */}
       <div className="px-2">
-        <SectionHeader>Collections</SectionHeader>
+        <SectionHeader
+          trailing={
+            <button
+              type="button"
+              aria-label="New Collection"
+              title="New Collection"
+              onClick={() =>
+                requestEditExit(() => {
+                  setCollectionError(null);
+                  setCreatingCollection((visible) => !visible);
+                })
+              }
+              style={sectionAddButtonStyle}
+            >
+              +
+            </button>
+          }
+        >
+          Collections
+        </SectionHeader>
+        {creatingCollection && (
+          <form
+            className="flex gap-1 px-1 pb-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createManualCollection();
+            }}
+          >
+            <input
+              autoFocus
+              aria-label="Collection name"
+              value={collectionName}
+              onChange={(event) => setCollectionName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setCreatingCollection(false);
+                  setCollectionError(null);
+                }
+              }}
+              placeholder="Collection name"
+              style={{
+                minWidth: 0,
+                flex: 1,
+                height: 28,
+                border: '1px solid var(--border)',
+                borderRadius: 5,
+                padding: '4px 7px',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontSize: 11,
+              }}
+            />
+            <button
+              type="submit"
+              disabled={!collectionName.trim() || savingCollection}
+              style={{
+                height: 28,
+                padding: '0 8px',
+                border: 0,
+                borderRadius: 5,
+                background: 'var(--accent)',
+                color: '#ffffff',
+                fontSize: 11,
+              }}
+            >
+              Add
+            </button>
+          </form>
+        )}
+        {collectionError && (
+          <div role="alert" className="px-2.5 pb-1" style={{ fontSize: 10, color: '#ff453a' }}>
+            {collectionError}
+          </div>
+        )}
         {regularCollections.length === 0 ? (
           <div
             className="px-2.5 py-1"
@@ -499,3 +600,14 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
     </aside>
   );
 }
+
+const sectionAddButtonStyle: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  border: 'none',
+  borderRadius: 5,
+  background: 'transparent',
+  color: 'var(--accent)',
+  fontSize: 16,
+  lineHeight: 1,
+};

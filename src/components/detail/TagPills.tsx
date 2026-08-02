@@ -2,11 +2,10 @@ import type { Tag } from '../../lib/types';
 
 interface Props {
   tags: Tag[];
-  promptId: string;
-  onTagsChanged?: () => void;
+  onRemove?: (tagId: string) => void;
 }
 
-export function TagPills({ tags }: Props) {
+export function TagPills({ tags, onRemove }: Props) {
   if (tags.length === 0) return null;
 
   return (
@@ -26,6 +25,26 @@ export function TagPills({ tags }: Props) {
           }}
         >
           {tag.name}
+          {onRemove && (
+            <button
+              type="button"
+              aria-label={`Remove tag ${tag.name}`}
+              onClick={() => onRemove(tag.id)}
+              style={{
+                width: 14,
+                height: 14,
+                marginLeft: 4,
+                padding: 0,
+                border: 0,
+                background: 'transparent',
+                color: 'currentColor',
+                fontSize: 13,
+                lineHeight: '12px',
+              }}
+            >
+              {'\u00d7'}
+            </button>
+          )}
         </span>
       ))}
     </div>

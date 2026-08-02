@@ -42,7 +42,7 @@ export const api = {
   },
   collections: {
     list: () => invoke<T.Collection[]>('list_collections'),
-    create: (request: { name: string; description?: string; is_smart?: boolean; filter_query?: string }) =>
+    create: (request: { name: string; description?: string; is_smart: boolean; filter_query?: string }) =>
       invoke<T.Collection>('create_collection', { request }),
     getPrompts: (collectionId: string) =>
       invoke<T.PromptListItem[]>('get_collection_prompts', { collectionId }),

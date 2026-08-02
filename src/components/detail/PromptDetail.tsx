@@ -21,6 +21,7 @@ import {
 } from '../../lib/promptDrafts';
 import { VariantSelector } from './VariantSelector';
 import { TagPills } from './TagPills';
+import { PromptLifecycleControls } from './PromptLifecycleControls';
 import { CopyButton } from '../shared/CopyButton';
 
 interface Props {
@@ -473,7 +474,7 @@ export function PromptDetail({ promptId }: Props) {
         {/* Tags and copy stats (visible in view mode only) */}
         {!isEditing && (
           <div className="flex items-center gap-3 mt-2 flex-wrap">
-            <TagPills tags={prompt.tags} promptId={prompt.id} />
+            <TagPills tags={prompt.tags} />
             <span
               style={{
                 fontSize: '11px',
@@ -495,6 +496,13 @@ export function PromptDetail({ promptId }: Props) {
         variants={prompt.variants}
         selectedId={selectedVariantId ?? ''}
         onSelect={handleVariantSelect}
+      />
+      <PromptLifecycleControls
+        prompt={prompt}
+        selectedVariantId={selectedVariantId}
+        isEditing={isEditing}
+        hasUnsavedDrafts={dirty}
+        onSelectVariant={handleVariantSelect}
       />
 
       {/* Content area */}
