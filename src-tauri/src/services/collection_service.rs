@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::error::{AppError, AppResult};
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::prompt::PromptListItem;
-use crate::services::{tag_service, transaction};
+use crate::services::{pagination, tag_service, transaction};
 
 pub fn create_collection(
     conn: &mut Connection,
@@ -99,6 +99,26 @@ pub fn get_collection_prompts(
     limit: i64,
     offset: i64,
 ) -> AppResult<Vec<PromptListItem>> {
+    let (limit, offset) = pagination::sanitize_pagination(Some(limit), Some(offset))?;
+    get_collection_prompts_sanitized(conn, collection_id, limit, offset)
+}
+
+pub fn get_collection_prompts_page(
+    conn: &Connection,
+    collection_id: &str,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> AppResult<Vec<PromptListItem>> {
+    let (limit, offset) = pagination::sanitize_pagination(limit, offset)?;
+    get_collection_prompts_sanitized(conn, collection_id, limit, offset)
+}
+
+fn get_collection_prompts_sanitized(
+    conn: &Connection,
+    collection_id: &str,
+    limit: i64,
+    offset: i64,
+) -> AppResult<Vec<PromptListItem>> {
     // First determine if this is a smart collection
     let (is_smart, filter_query): (bool, Option<String>) = conn.query_row(
         "SELECT is_smart, filter_query FROM collections WHERE id = ?1",
@@ -128,7 +148,7 @@ fn get_manual_collection_prompts(
          JOIN collection_prompts cp ON cp.prompt_id = p.id
          LEFT JOIN variants v ON v.id = p.primary_variant_id AND v.deleted_at IS NULL
          WHERE cp.collection_id = ?1 AND p.deleted_at IS NULL
-         ORDER BY cp.position
+         ORDER BY cp.position ASC, cp.prompt_id ASC
          LIMIT ?2 OFFSET ?3",
     )?;
 
@@ -272,7 +292,7 @@ fn get_smart_collection_prompts(
          FROM prompts p
          LEFT JOIN variants v ON v.id = p.primary_variant_id AND v.deleted_at IS NULL
          WHERE p.deleted_at IS NULL AND ({})
-         ORDER BY p.updated_at DESC
+         ORDER BY p.updated_at DESC, p.id DESC
          LIMIT ?1 OFFSET ?2",
         where_clause
     );

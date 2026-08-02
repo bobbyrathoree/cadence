@@ -11,7 +11,12 @@ export async function safeInvoke<R>(cmd: string, args?: Record<string, unknown>)
 
 export const api = {
   prompts: {
-    list: () => invoke<T.PromptListItem[]>('list_prompts'),
+    list: (
+      filter?: T.PromptListFilter,
+      limit?: number,
+      offset?: number,
+    ) =>
+      invoke<T.PromptListItem[]>('list_prompts', { filter, limit, offset }),
     get: (id: string) => invoke<T.PromptWithVariants>('get_prompt', { id }),
     create: (request: { title: string; content: string; tags?: string[]; description?: string }) =>
       invoke<T.PromptWithVariants>('create_prompt', { request }),
@@ -44,14 +49,19 @@ export const api = {
     list: () => invoke<T.Collection[]>('list_collections'),
     create: (request: { name: string; description?: string; is_smart: boolean; filter_query?: string }) =>
       invoke<T.Collection>('create_collection', { request }),
-    getPrompts: (collectionId: string) =>
-      invoke<T.PromptListItem[]>('get_collection_prompts', { collectionId }),
+    getPrompts: (collectionId: string, limit?: number, offset?: number) =>
+      invoke<T.PromptListItem[]>('get_collection_prompts', {
+        collectionId,
+        limit,
+        offset,
+      }),
     addPrompt: (collectionId: string, promptId: string) =>
       invoke('add_prompt_to_collection', { collectionId, promptId }),
     removePrompt: (collectionId: string, promptId: string) =>
       invoke('remove_prompt_from_collection', { collectionId, promptId }),
   },
-  search: (query: string) => invoke<T.PromptListItem[]>('search_prompts', { query }),
+  search: (query: string, limit = 100) =>
+    invoke<T.PromptListItem[]>('search_prompts', { query, limit }),
   playbooks: {
     list: () => invoke<T.Playbook[]>('list_playbooks'),
     get: (id: string) => invoke<T.PlaybookWithSteps>('get_playbook', { id }),

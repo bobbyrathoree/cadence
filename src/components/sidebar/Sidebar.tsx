@@ -6,9 +6,9 @@ import {
   usePlaybooks,
   useTags,
   usePlaybookSession,
+  usePromptCounts,
 } from '../../lib/hooks';
 import { api } from '../../lib/api';
-import type { PromptListItem } from '../../lib/types';
 import { CollectionItem } from './CollectionItem';
 
 /* ------------------------------------------------------------------ */
@@ -136,7 +136,7 @@ function GearIcon() {
   );
 }
 
-export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
+export function Sidebar() {
   const {
     activeView,
     setActiveView,
@@ -166,10 +166,12 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
   const { data: tags, error: tagsError } = useTags(refreshCounter);
   const { data: session, error: sessionError } =
     usePlaybookSession(refreshCounter);
+  const { data: counts, error: countsError } =
+    usePromptCounts(refreshCounter);
 
-  const allCount = prompts.length;
-  const favCount = prompts.filter((p) => p.is_favorite).length;
-  const recentCount = prompts.filter((p) => p.last_copied_at !== null).length;
+  const allCount = counts?.all;
+  const favCount = counts?.favorites;
+  const recentCount = counts?.recents;
 
   const smartCollections = collections.filter((c) => c.is_smart);
   const regularCollections = collections.filter((c) => !c.is_smart);
@@ -259,6 +261,11 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
           isActive={activeView === 'recents'}
           onClick={() => handleViewClick('recents')}
         />
+        {countsError && (
+          <div role="alert" className="px-2.5 py-1" style={{ fontSize: 10, color: '#ff453a' }}>
+            Couldn't load counts
+          </div>
+        )}
       </div>
 
       {/* Smart Collections */}

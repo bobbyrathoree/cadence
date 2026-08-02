@@ -21,8 +21,6 @@ use crate::services::{
     tag_service,
 };
 
-const DEFAULT_PAGE_SIZE: i64 = 100;
-const MAX_PAGE_SIZE: i64 = 500;
 const MAX_SEARCH_QUERY_CHARS: usize = 512;
 
 pub fn router() -> Router<Arc<ApiState>> {
@@ -146,18 +144,6 @@ fn error_response(error: AppError) -> Response {
     (status, Json(ErrorResponse { error: message })).into_response()
 }
 
-fn sanitize_pagination(limit: Option<i64>, offset: Option<i64>) -> AppResult<(i64, i64)> {
-    let limit = limit.unwrap_or(DEFAULT_PAGE_SIZE);
-    let offset = offset.unwrap_or(0);
-    if limit < 1 {
-        return Err(AppError::invalid("limit must be at least 1"));
-    }
-    if offset < 0 {
-        return Err(AppError::invalid("offset must be at least 0"));
-    }
-    Ok((limit.min(MAX_PAGE_SIZE), offset))
-}
-
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
@@ -171,20 +157,22 @@ async fn health() -> Json<HealthResponse> {
 struct ListPromptsQuery {
     limit: Option<i64>,
     offset: Option<i64>,
+    filter: Option<String>,
 }
 
 async fn list_prompts(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ListPromptsQuery>,
 ) -> Response {
-    let (limit, offset) = match sanitize_pagination(query.limit, query.offset) {
-        Ok(values) => values,
-        Err(error) => return error_response(error),
-    };
     json_result(
         run_blocking(move || {
             let conn = lock_db(&state)?;
-            prompt_service::list_prompts(&conn, limit, offset)
+            prompt_service::list_prompts_page(
+                &conn,
+                query.filter.as_deref(),
+                query.limit,
+                query.offset,
+            )
         })
         .await,
     )
@@ -365,14 +353,21 @@ async fn create_collection(
     )
 }
 
+#[derive(Deserialize)]
+struct PaginationQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
 async fn get_collection_prompts(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
+    Query(query): Query<PaginationQuery>,
 ) -> Response {
     json_result(
         run_blocking(move || {
             let conn = lock_db(&state)?;
-            collection_service::get_collection_prompts(&conn, &id, 100, 0)
+            collection_service::get_collection_prompts_page(&conn, &id, query.limit, query.offset)
         })
         .await,
     )
@@ -411,6 +406,7 @@ async fn remove_prompt_from_collection(
 #[derive(Deserialize)]
 struct SearchQuery {
     q: String,
+    limit: Option<i64>,
 }
 
 async fn search(State(state): State<Arc<ApiState>>, Query(query): Query<SearchQuery>) -> Response {
@@ -420,7 +416,7 @@ async fn search(State(state): State<Arc<ApiState>>, Query(query): Query<SearchQu
     json_result(
         run_blocking(move || {
             let conn = lock_db(&state)?;
-            search_service::search_prompts(&conn, &query.q, 50)
+            search_service::search_prompts_page(&conn, &query.q, query.limit)
         })
         .await,
     )

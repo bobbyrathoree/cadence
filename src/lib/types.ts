@@ -106,6 +106,8 @@ export interface PromptCounts {
   recents: number;
 }
 
+export type PromptListFilter = 'all' | 'favorites' | 'recent';
+
 export interface ImportResult {
   imported: number;
   skipped: number;

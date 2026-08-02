@@ -60,6 +60,9 @@ describe('PromptList displayed navigation source', () => {
         promptsLoading={false}
         promptsError={null}
         onRetry={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
       />,
     );
 
@@ -81,6 +84,9 @@ describe('PromptList displayed navigation source', () => {
         promptsLoading={false}
         promptsError={new Error('offline')}
         onRetry={onRetry}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
       />,
     );
 

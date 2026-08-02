@@ -50,12 +50,18 @@ pub async fn set_api_enabled(
 }
 
 #[tauri::command]
-pub fn list_prompts(state: tauri::State<'_, AppState>) -> Result<Vec<PromptListItem>, String> {
+pub fn list_prompts(
+    filter: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<PromptListItem>, String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::list_prompts(&conn, 100, 0).map_err(|e| e.to_string())
+    prompt_service::list_prompts_page(&conn, filter.as_deref(), limit, offset)
+        .map_err(|error| error.ipc_message())
 }
 
 #[tauri::command]
@@ -297,26 +303,29 @@ pub fn remove_prompt_from_collection(
 #[tauri::command]
 pub fn get_collection_prompts(
     collection_id: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PromptListItem>, String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "Database is unavailable".to_string())?;
-    collection_service::get_collection_prompts(&conn, &collection_id, 100, 0)
-        .map_err(|e| e.to_string())
+    collection_service::get_collection_prompts_page(&conn, &collection_id, limit, offset)
+        .map_err(|error| error.ipc_message())
 }
 
 #[tauri::command]
 pub fn search_prompts(
     query: String,
+    limit: Option<i64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PromptListItem>, String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "Database is unavailable".to_string())?;
-    search_service::search_prompts(&conn, &query, 50).map_err(|e| e.to_string())
+    search_service::search_prompts_page(&conn, &query, limit).map_err(|error| error.ipc_message())
 }
 
 #[tauri::command]

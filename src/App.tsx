@@ -41,37 +41,47 @@ function AppContent() {
     hideToast,
   } = useAppContext();
 
+  const promptFilter =
+    activeView === 'favorites'
+      ? 'favorites'
+      : activeView === 'recents'
+        ? 'recent'
+        : 'all';
   const {
     data: allPrompts,
     error: allPromptsError,
     loading: allPromptsLoading,
-  } = usePrompts(refreshCounter);
+    hasMore: allPromptsHasMore,
+    loadingMore: allPromptsLoadingMore,
+    loadMore: loadMorePrompts,
+  } = usePrompts(refreshCounter, promptFilter);
   const {
     data: collectionPrompts,
     error: collectionPromptsError,
     loading: collectionPromptsLoading,
+    hasMore: collectionPromptsHasMore,
+    loadingMore: collectionPromptsLoadingMore,
+    loadMore: loadMoreCollectionPrompts,
   } = useCollectionPrompts(
     activeView === 'collection' ? activeCollectionId : null,
     refreshCounter,
   );
-  const prompts = useMemo(() => {
-    if (activeView === 'collection') return collectionPrompts;
-    if (activeView === 'favorites') {
-      return allPrompts.filter((prompt) => prompt.is_favorite);
-    }
-    if (activeView === 'recents') {
-      return allPrompts
-        .filter((prompt) => prompt.last_copied_at !== null)
-        .sort((left, right) =>
-          (right.last_copied_at ?? '').localeCompare(left.last_copied_at ?? ''),
-        );
-    }
-    return allPrompts;
-  }, [activeView, allPrompts, collectionPrompts]);
+  const prompts =
+    activeView === 'collection' ? collectionPrompts : allPrompts;
   const promptsLoading =
     activeView === 'collection' ? collectionPromptsLoading : allPromptsLoading;
   const promptsError =
     activeView === 'collection' ? collectionPromptsError : allPromptsError;
+  const promptsHasMore =
+    activeView === 'collection' ? collectionPromptsHasMore : allPromptsHasMore;
+  const promptsLoadingMore =
+    activeView === 'collection'
+      ? collectionPromptsLoadingMore
+      : allPromptsLoadingMore;
+  const loadMore =
+    activeView === 'collection'
+      ? loadMoreCollectionPrompts
+      : loadMorePrompts;
   const { data: shortcuts } = useKeyboardShortcuts(refreshCounter);
 
   // Build reverse lookup map: binding -> action (skip global shortcuts handled by Rust)
@@ -209,12 +219,15 @@ function AppContent() {
       className="flex h-screen overflow-hidden"
       style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
-      <Sidebar prompts={allPrompts} />
+      <Sidebar />
       <PromptList
         prompts={prompts}
         promptsLoading={promptsLoading}
         promptsError={promptsError}
         onRetry={triggerRefresh}
+        hasMore={promptsHasMore}
+        loadingMore={promptsLoadingMore}
+        onLoadMore={loadMore}
       />
       <DetailPanel prompts={allPrompts} />
       <Toast

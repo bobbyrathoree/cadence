@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 
 use crate::error::AppResult;
 use crate::models::prompt::{PromptListItem, SnippetRun};
-use crate::services::tag_service;
+use crate::services::{pagination, tag_service};
 
 /// Search prompts using an allowlisted FTS5 query.
 /// Tokens are implicitly ANDed, with prefix matching on the final token only.
@@ -15,6 +15,7 @@ pub fn search_prompts(
     query: &str,
     limit: i64,
 ) -> AppResult<Vec<PromptListItem>> {
+    let limit = pagination::sanitize_search_limit(Some(limit))?;
     let tokens = tokenize_query(query);
     if tokens.is_empty() {
         return Ok(Vec::new());
@@ -48,7 +49,7 @@ pub fn search_prompts(
           AND v.prompt_id = p.id
           AND v.deleted_at IS NULL
          WHERE prompts_fts MATCH ?1 AND p.deleted_at IS NULL
-         ORDER BY f.rank
+         ORDER BY f.rank, p.id
          LIMIT ?2",
     )?;
 
@@ -98,6 +99,15 @@ pub fn search_prompts(
     }
 
     Ok(items)
+}
+
+pub fn search_prompts_page(
+    conn: &Connection,
+    query: &str,
+    limit: Option<i64>,
+) -> AppResult<Vec<PromptListItem>> {
+    let limit = pagination::sanitize_search_limit(limit)?;
+    search_prompts(conn, query, limit)
 }
 
 fn tokenize_query(query: &str) -> Vec<String> {

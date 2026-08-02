@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from './api';
 import type {
   PromptListItem,
@@ -8,12 +8,37 @@ import type {
   Playbook,
   PlaybookSession,
   KeyboardShortcut,
+  PromptCounts,
+  PromptListFilter,
 } from './types';
 
 export interface FetchState<T> {
   data: T;
   error: Error | null;
   loading: boolean;
+}
+
+export interface PaginatedFetchState<T> extends FetchState<T[]> {
+  hasMore: boolean;
+  loadingMore: boolean;
+  loadMore: () => void;
+}
+
+const PAGE_SIZE = 100;
+
+export function mergePromptPages(
+  current: PromptListItem[],
+  page: PromptListItem[],
+): PromptListItem[] {
+  const merged = [...current];
+  const seen = new Set(current.map((item) => item.id));
+  for (const item of page) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 function asError(error: unknown): Error {
@@ -23,27 +48,41 @@ function asError(error: unknown): Error {
 /** Fetches the main all-prompts source once for the application shell. */
 export function usePrompts(
   refreshCounter: number,
-): FetchState<PromptListItem[]> {
+  filter: PromptListFilter = 'all',
+): PaginatedFetchState<PromptListItem> {
   const [prompts, setPrompts] = useState<PromptListItem[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const nextOffsetRef = useRef(0);
+  const requestGenerationRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++requestGenerationRef.current;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
+    setPrompts([]);
+    nextOffsetRef.current = 0;
 
     async function fetch() {
       try {
-        const result = await api.prompts.list();
+        const result = await api.prompts.list(filter, PAGE_SIZE, 0);
 
-        if (!cancelled) {
+        if (!cancelled && generation === requestGenerationRef.current) {
           setPrompts(result);
+          nextOffsetRef.current = PAGE_SIZE;
+          setHasMore(result.length === PAGE_SIZE);
         }
       } catch (err) {
-        if (!cancelled) setError(asError(err));
+        if (!cancelled && generation === requestGenerationRef.current) {
+          setError(asError(err));
+          setHasMore(false);
+        }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && generation === requestGenerationRef.current) {
           setLoading(false);
         }
       }
@@ -53,40 +92,93 @@ export function usePrompts(
     return () => {
       cancelled = true;
     };
-  }, [refreshCounter]);
+  }, [filter, refreshCounter]);
 
-  return { data: prompts, error, loading };
+  const loadMore = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    const generation = requestGenerationRef.current;
+    const offset = nextOffsetRef.current;
+    setLoadingMore(true);
+    setError(null);
+    api.prompts
+      .list(filter, PAGE_SIZE, offset)
+      .then((page) => {
+        if (generation !== requestGenerationRef.current) return;
+        setPrompts((current) => mergePromptPages(current, page));
+        nextOffsetRef.current = offset + PAGE_SIZE;
+        setHasMore(page.length === PAGE_SIZE);
+      })
+      .catch((loadError) => {
+        if (generation === requestGenerationRef.current) {
+          setError(asError(loadError));
+        }
+      })
+      .finally(() => {
+        if (generation === requestGenerationRef.current) {
+          setLoadingMore(false);
+        }
+      });
+  }, [filter, hasMore, loading, loadingMore]);
+
+  return {
+    data: prompts,
+    error,
+    loading,
+    hasMore,
+    loadingMore,
+    loadMore,
+  };
 }
 
 export function useCollectionPrompts(
   collectionId: string | null,
   refreshCounter: number,
-): FetchState<PromptListItem[]> {
+): PaginatedFetchState<PromptListItem> {
   const [prompts, setPrompts] = useState<PromptListItem[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const nextOffsetRef = useRef(0);
+  const requestGenerationRef = useRef(0);
 
   useEffect(() => {
+    const generation = ++requestGenerationRef.current;
     if (!collectionId) {
       setPrompts([]);
       setError(null);
       setLoading(false);
+      setLoadingMore(false);
+      setHasMore(false);
+      nextOffsetRef.current = 0;
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
+    setPrompts([]);
+    nextOffsetRef.current = 0;
     api.collections
-      .getPrompts(collectionId)
+      .getPrompts(collectionId, PAGE_SIZE, 0)
       .then((result) => {
-        if (!cancelled) setPrompts(result);
+        if (!cancelled && generation === requestGenerationRef.current) {
+          setPrompts(result);
+          nextOffsetRef.current = PAGE_SIZE;
+          setHasMore(result.length === PAGE_SIZE);
+        }
       })
       .catch((error) => {
-        if (!cancelled) setError(asError(error));
+        if (!cancelled && generation === requestGenerationRef.current) {
+          setError(asError(error));
+          setHasMore(false);
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && generation === requestGenerationRef.current) {
+          setLoading(false);
+        }
       });
 
     return () => {
@@ -94,7 +186,70 @@ export function useCollectionPrompts(
     };
   }, [collectionId, refreshCounter]);
 
-  return { data: prompts, error, loading };
+  const loadMore = useCallback(() => {
+    if (!collectionId || loading || loadingMore || !hasMore) return;
+    const generation = requestGenerationRef.current;
+    const offset = nextOffsetRef.current;
+    setLoadingMore(true);
+    setError(null);
+    api.collections
+      .getPrompts(collectionId, PAGE_SIZE, offset)
+      .then((page) => {
+        if (generation !== requestGenerationRef.current) return;
+        setPrompts((current) => mergePromptPages(current, page));
+        nextOffsetRef.current = offset + PAGE_SIZE;
+        setHasMore(page.length === PAGE_SIZE);
+      })
+      .catch((loadError) => {
+        if (generation === requestGenerationRef.current) {
+          setError(asError(loadError));
+        }
+      })
+      .finally(() => {
+        if (generation === requestGenerationRef.current) {
+          setLoadingMore(false);
+        }
+      });
+  }, [collectionId, hasMore, loading, loadingMore]);
+
+  return {
+    data: prompts,
+    error,
+    loading,
+    hasMore,
+    loadingMore,
+    loadMore,
+  };
+}
+
+export function usePromptCounts(
+  refreshCounter: number,
+): FetchState<PromptCounts | null> {
+  const [counts, setCounts] = useState<PromptCounts | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.prompts
+      .counts()
+      .then((result) => {
+        if (!cancelled) setCounts(result);
+      })
+      .catch((fetchError) => {
+        if (!cancelled) setError(asError(fetchError));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshCounter]);
+
+  return { data: counts, error, loading };
 }
 
 /**

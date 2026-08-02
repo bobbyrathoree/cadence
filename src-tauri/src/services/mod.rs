@@ -2,6 +2,7 @@
 
 pub mod collection_service;
 pub mod import_export;
+pub mod pagination;
 pub mod playbook_service;
 pub mod prompt_service;
 pub mod search_service;

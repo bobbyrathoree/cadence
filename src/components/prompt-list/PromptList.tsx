@@ -9,6 +9,9 @@ interface Props {
   promptsLoading: boolean;
   promptsError: Error | null;
   onRetry: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 export function PromptList({
@@ -16,6 +19,9 @@ export function PromptList({
   promptsLoading,
   promptsError,
   onRetry,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: Props) {
   const {
     searchQuery,
@@ -39,6 +45,7 @@ export function PromptList({
   const loading = isSearching ? searchLoading : promptsLoading;
   const error = isSearching ? searchError : promptsError;
   const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const loadMoreRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setDisplayedPromptIds(displayItems.map((item) => item.id));
@@ -49,6 +56,19 @@ export function PromptList({
       itemRefs.current.get(selectedPromptId)?.scrollIntoView({ block: 'nearest' });
     }
   }, [selectedPromptId]);
+
+  useEffect(() => {
+    if (isSearching || !hasMore || !loadMoreRef.current) return;
+    if (!('IntersectionObserver' in window)) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+      },
+      { rootMargin: '120px' },
+    );
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, isSearching, onLoadMore]);
 
   return (
     <div
@@ -132,7 +152,7 @@ export function PromptList({
           >
             Loading...
           </div>
-        ) : error ? (
+        ) : error && displayItems.length === 0 ? (
           <div
             role="alert"
             className="p-4 text-center"
@@ -166,22 +186,43 @@ export function PromptList({
             {isSearching ? 'No results found' : 'No prompts yet'}
           </div>
         ) : (
-          displayItems.map((item) => (
-            <PromptListItem
-              key={item.id}
-              item={item}
-              isSelected={selectedPromptId === item.id}
-              itemRef={(element) => {
-                if (element) itemRefs.current.set(item.id, element);
-                else itemRefs.current.delete(item.id);
-              }}
-              onClick={() => {
-                if (item.id !== selectedPromptId) {
-                  requestEditExit(() => setSelectedPromptId(item.id));
-                }
-              }}
-            />
-          ))
+          <>
+            {displayItems.map((item) => (
+              <PromptListItem
+                key={item.id}
+                item={item}
+                isSelected={selectedPromptId === item.id}
+                itemRef={(element) => {
+                  if (element) itemRefs.current.set(item.id, element);
+                  else itemRefs.current.delete(item.id);
+                }}
+                onClick={() => {
+                  if (item.id !== selectedPromptId) {
+                    requestEditExit(() => setSelectedPromptId(item.id));
+                  }
+                }}
+              />
+            ))}
+            {!isSearching && (hasMore || loadingMore || error) && (
+              <button
+                ref={loadMoreRef}
+                type="button"
+                disabled={loadingMore}
+                onClick={onLoadMore}
+                className="w-full"
+                style={{
+                  minHeight: 36,
+                  border: 0,
+                  borderBottom: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: error ? '#ff453a' : 'var(--text-secondary)',
+                  fontSize: 11,
+                }}
+              >
+                {loadingMore ? 'Loading...' : error ? 'Retry load more' : 'Load more'}
+              </button>
+            )}
+          </>
         )}
       </div>
 

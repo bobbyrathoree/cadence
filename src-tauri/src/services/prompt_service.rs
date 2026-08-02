@@ -6,7 +6,27 @@ use crate::models::prompt::{
     CreatePromptRequest, Prompt, PromptCounts, PromptListItem, PromptUsage, PromptWithVariants,
     UpdatePromptRequest, Variant,
 };
-use crate::services::{tag_service, transaction};
+use crate::services::{pagination, tag_service, transaction};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptListFilter {
+    All,
+    Favorites,
+    Recent,
+}
+
+impl PromptListFilter {
+    pub fn parse(value: Option<&str>) -> AppResult<Self> {
+        match value.unwrap_or("all") {
+            "all" => Ok(Self::All),
+            "favorites" => Ok(Self::Favorites),
+            "recent" => Ok(Self::Recent),
+            _ => Err(AppError::invalid(
+                "filter must be one of: all, favorites, recent",
+            )),
+        }
+    }
+}
 
 fn ensure_prompt_exists(conn: &Connection, prompt_id: &str) -> AppResult<()> {
     conn.query_row(
@@ -224,19 +244,37 @@ pub fn get_prompt_by_id(conn: &Connection, id: &str) -> AppResult<PromptWithVari
 }
 
 pub fn list_prompts(conn: &Connection, limit: i64, offset: i64) -> AppResult<Vec<PromptListItem>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT p.id, p.title, p.description, p.is_favorite, p.copy_count,
-                    p.last_copied_at, COALESCE(SUBSTR(v.content, 1, 100), ''),
-                    (SELECT COUNT(*) FROM variants
-                     WHERE prompt_id = p.id AND deleted_at IS NULL)
-             FROM prompts p
-             LEFT JOIN variants v ON v.id = p.primary_variant_id AND v.deleted_at IS NULL
-             WHERE p.deleted_at IS NULL
-             ORDER BY p.updated_at DESC
-             LIMIT ?1 OFFSET ?2",
-        )
-        .map_err(AppError::from)?;
+    list_prompts_page(conn, Some("all"), Some(limit), Some(offset))
+}
+
+pub fn list_prompts_page(
+    conn: &Connection,
+    filter: Option<&str>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> AppResult<Vec<PromptListItem>> {
+    let filter = PromptListFilter::parse(filter)?;
+    let (limit, offset) = pagination::sanitize_pagination(limit, offset)?;
+    let (predicate, ordering) = match filter {
+        PromptListFilter::All => ("", "p.updated_at DESC, p.id DESC"),
+        PromptListFilter::Favorites => ("AND p.is_favorite = 1", "p.updated_at DESC, p.id DESC"),
+        PromptListFilter::Recent => (
+            "AND p.last_copied_at IS NOT NULL",
+            "p.last_copied_at DESC, p.id DESC",
+        ),
+    };
+    let sql = format!(
+        "SELECT p.id, p.title, p.description, p.is_favorite, p.copy_count,
+                p.last_copied_at, COALESCE(SUBSTR(v.content, 1, 100), ''),
+                (SELECT COUNT(*) FROM variants
+                 WHERE prompt_id = p.id AND deleted_at IS NULL)
+         FROM prompts p
+         LEFT JOIN variants v ON v.id = p.primary_variant_id AND v.deleted_at IS NULL
+         WHERE p.deleted_at IS NULL {predicate}
+         ORDER BY {ordering}
+         LIMIT ?1 OFFSET ?2"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
 
     let rows = stmt
         .query_map(params![limit, offset], |row| {

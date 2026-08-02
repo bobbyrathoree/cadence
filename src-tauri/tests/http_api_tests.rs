@@ -4,7 +4,7 @@ use cadence_lib::api::server::{self, ApiState};
 use cadence_lib::db::schema;
 use cadence_lib::models::collection::CreateCollectionRequest;
 use cadence_lib::models::playbook::StepSpec;
-use cadence_lib::models::prompt::CreatePromptRequest;
+use cadence_lib::models::prompt::{CreatePromptRequest, PromptListItem};
 use cadence_lib::services::{collection_service, playbook_service, prompt_service, tag_service};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -382,6 +382,88 @@ async fn prompt_counts_requires_auth_and_returns_full_dataset_counts() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prompt_list_omitted_params_keep_bare_array_defaults_and_validate_filters() {
+    let _guard = HTTP_TEST_LOCK.lock().await;
+    let server = TestServer::start().await;
+
+    let omitted = server.authenticated("GET", "/api/v1/prompts", "").await;
+    let explicit = server
+        .authenticated("GET", "/api/v1/prompts?filter=all&limit=100&offset=0", "")
+        .await;
+    assert_status(&omitted, 200, "GET", "omitted prompt pagination");
+    assert_status(&explicit, 200, "GET", "explicit prompt pagination");
+    let omitted_json: serde_json::Value = serde_json::from_str(response_body(&omitted)).unwrap();
+    let explicit_json: serde_json::Value = serde_json::from_str(response_body(&explicit)).unwrap();
+    assert!(omitted_json.is_array());
+    assert_eq!(omitted_json, explicit_json);
+    let first = omitted_json.as_array().unwrap()[0].as_object().unwrap();
+    for field in [
+        "id",
+        "title",
+        "description",
+        "snippet",
+        "snippet_runs",
+        "is_favorite",
+        "variant_count",
+        "copy_count",
+        "last_copied_at",
+        "tags",
+    ] {
+        assert!(first.contains_key(field), "missing field {field}");
+    }
+
+    for path in [
+        "/api/v1/prompts?filter=invalid",
+        "/api/v1/prompts?limit=0",
+        "/api/v1/prompts?offset=-1",
+    ] {
+        let response = server.authenticated("GET", path, "").await;
+        assert_status(&response, 400, "GET", path);
+    }
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn manual_collection_http_pages_follow_exact_position_order() {
+    let _guard = HTTP_TEST_LOCK.lock().await;
+    let server = TestServer::start().await;
+    {
+        let conn = server.state.db.lock().unwrap();
+        for position in 0..250 {
+            let id = format!("http-member-{:03}", 249 - position);
+            conn.execute(
+                "INSERT INTO prompts (id, title, is_favorite, copy_count, updated_at)
+                 VALUES (?1, ?1, 0, 0, '2026-08-02T00:00:00Z')",
+                [&id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO collection_prompts (collection_id, prompt_id, position)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![server.ids.collection, id, position],
+            )
+            .unwrap();
+        }
+    }
+
+    for (offset, length) in [(0, 100), (100, 100), (200, 50)] {
+        let path = format!(
+            "/api/v1/collections/{}/prompts?limit=100&offset={offset}",
+            server.ids.collection
+        );
+        let response = server.authenticated("GET", &path, "").await;
+        assert_status(&response, 200, "GET", &path);
+        let page: Vec<PromptListItem> = serde_json::from_str(response_body(&response)).unwrap();
+        let actual = page.into_iter().map(|item| item.id).collect::<Vec<_>>();
+        let expected = (offset..offset + length)
+            .map(|position| format!("http-member-{:03}", 249 - position))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "offset {offset}");
+    }
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bearer_scheme_is_case_insensitive_but_token_is_case_sensitive() {
     let _guard = HTTP_TEST_LOCK.lock().await;
     let server = TestServer::start().await;
@@ -717,4 +799,8 @@ fn assert_status(response: &str, expected: u16, method: &str, path: &str) {
         Some(expected),
         "{method} {path} expected {expected}, response: {response}"
     );
+}
+
+fn response_body(response: &str) -> &str {
+    response.split("\r\n\r\n").nth(1).unwrap_or_default()
 }
