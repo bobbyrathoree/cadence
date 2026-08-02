@@ -41,3 +41,20 @@ export function eventToBinding(event: KeyboardEventLike): string {
   if (!isModifierKey(event.key)) parts.push(normalizeKey(event.key));
   return parts.join('+');
 }
+
+export function shouldIgnoreShortcutFromTarget(
+  target: EventTarget | null,
+  event: Pick<
+    KeyboardEventLike,
+    'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'
+  >,
+): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const isTextEntry =
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.isContentEditable;
+  const hasModifier =
+    event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+  return isTextEntry && !hasModifier;
+}

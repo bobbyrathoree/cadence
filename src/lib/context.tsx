@@ -31,6 +31,8 @@ export interface AppContextType {
   // Search
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  displayedPromptIds: string[];
+  setDisplayedPromptIds: (ids: string[]) => void;
 
   // Refresh trigger
   refreshCounter: number;
@@ -50,6 +52,12 @@ export interface AppContextType {
   // Settings modal
   isSettingsOpen: boolean;
   setIsSettingsOpen: (v: boolean) => void;
+
+  // Modal stack
+  hasOpenModal: boolean;
+  registerModal: (id: string) => void;
+  unregisterModal: (id: string) => void;
+  isTopModal: (id: string) => boolean;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -62,11 +70,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     useState<PlaybookBuilderMode | null>(null);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [displayedPromptIds, setDisplayedPromptIds] = useState<string[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [modalStack, setModalStack] = useState<string[]>([]);
 
   const triggerRefresh = useCallback(() => {
     setRefreshCounter((c) => c + 1);
@@ -87,6 +97,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [isEditing],
   );
 
+  const registerModal = useCallback((id: string) => {
+    setModalStack((current) => [...current.filter((entry) => entry !== id), id]);
+  }, []);
+
+  const unregisterModal = useCallback((id: string) => {
+    setModalStack((current) => current.filter((entry) => entry !== id));
+  }, []);
+
+  const isTopModal = useCallback(
+    (id: string) => modalStack[modalStack.length - 1] === id,
+    [modalStack],
+  );
+
   const value = useMemo<AppContextType>(
     () => ({
       activeView,
@@ -101,6 +124,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSelectedPromptId,
       searchQuery,
       setSearchQuery,
+      displayedPromptIds,
+      setDisplayedPromptIds,
       refreshCounter,
       triggerRefresh,
       isCreating,
@@ -112,6 +137,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsImportOpen,
       isSettingsOpen,
       setIsSettingsOpen,
+      hasOpenModal: modalStack.length > 0,
+      registerModal,
+      unregisterModal,
+      isTopModal,
     }),
     [
       activeView,
@@ -120,6 +149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       playbookBuilderMode,
       selectedPromptId,
       searchQuery,
+      displayedPromptIds,
       refreshCounter,
       triggerRefresh,
       isCreating,
@@ -127,6 +157,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       requestEditExit,
       isImportOpen,
       isSettingsOpen,
+      modalStack,
+      registerModal,
+      unregisterModal,
+      isTopModal,
     ],
   );
 

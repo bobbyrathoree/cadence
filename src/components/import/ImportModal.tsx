@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { PromptSlicer } from './PromptSlicer';
 import type { ImportResult } from '../../lib/types';
+import { Modal } from '../shared/Modal';
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -26,6 +27,19 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
   // Shared
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setActiveTab('json');
+    setJsonText('');
+    setJsonPreviewCount(null);
+    setJsonError('');
+    setMdFiles([]);
+    setImporting(false);
+    setResult(null);
+    if (jsonFileRef.current) jsonFileRef.current.value = '';
+    if (mdFileRef.current) mdFileRef.current.value = '';
+  }, [isOpen]);
 
   // Parse JSON to preview count
   const handleJsonChange = useCallback((value: string) => {
@@ -131,22 +145,6 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
     setResult(null);
   }
 
-  // Escape key closes modal
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   const tabs: { key: Tab; label: string }[] = [
     { key: 'json', label: 'JSON' },
     { key: 'markdown', label: 'Markdown' },
@@ -154,37 +152,25 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
   ];
 
   return (
-    // Backdrop
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9000,
+    <Modal
+      id="import"
+      isOpen={isOpen}
+      onClose={onClose}
+      ariaLabel="Import Prompts"
+      width={600}
+      maxHeight="80vh"
+      panelStyle={{
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
-        animation: 'modalFadeIn 0.15s ease-out',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      {/* Modal card */}
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
-          width: 600,
-          maxHeight: '80vh',
           display: 'flex',
           flexDirection: 'column',
-          background: 'var(--bg-secondary)',
-          borderRadius: 12,
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.05)',
+          minHeight: 0,
           overflow: 'hidden',
-          animation: 'modalSlideIn 0.2s ease-out',
         }}
       >
         {/* Header */}
@@ -527,12 +513,13 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
             </div>
           )}
 
-          {/* Prompt Slicer Tab */}
-          {activeTab === 'slicer' && (
-            <div style={{ height: 350 }}>
-              <PromptSlicer />
-            </div>
-          )}
+          {/* Keep the slicer mounted so tab changes do not discard its work. */}
+          <div
+            aria-hidden={activeTab !== 'slicer'}
+            style={{ height: 350, display: activeTab === 'slicer' ? 'block' : 'none' }}
+          >
+            <PromptSlicer />
+          </div>
         </div>
 
         {/* Footer — import results */}
@@ -571,6 +558,6 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

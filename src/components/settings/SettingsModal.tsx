@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { KeyboardShortcut } from '../../lib/types';
 import { ShortcutRecorder } from './ShortcutRecorder';
+import { Modal } from '../shared/Modal';
 
 interface Props {
   isOpen: boolean;
@@ -11,20 +12,6 @@ interface Props {
 }
 
 export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, onResetAll }: Props) {
-  // Escape key closes modal
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   const existingBindings = useMemo(
     () => new Map(shortcuts.filter((s) => s.binding).map((s) => [s.binding, s.action])),
     [shortcuts],
@@ -40,40 +27,26 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
     [shortcuts],
   );
 
-  if (!isOpen) return null;
-
   return (
-    // Backdrop
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9000,
+    <Modal
+      id="settings"
+      isOpen={isOpen}
+      onClose={onClose}
+      ariaLabel="Keyboard Shortcuts"
+      width={550}
+      maxHeight="80vh"
+      panelStyle={{
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
-        animation: 'modalFadeIn 0.15s ease-out',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      {/* Modal card */}
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
-          width: 550,
-          maxHeight: '80vh',
           display: 'flex',
           flexDirection: 'column',
-          background: 'var(--bg-secondary)',
-          borderRadius: 12,
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.05)',
+          minHeight: 0,
           overflow: 'hidden',
-          animation: 'modalSlideIn 0.2s ease-out',
         }}
       >
         {/* Header */}
@@ -214,7 +187,7 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

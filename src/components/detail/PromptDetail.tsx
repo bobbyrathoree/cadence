@@ -23,6 +23,7 @@ import { VariantSelector } from './VariantSelector';
 import { TagPills } from './TagPills';
 import { PromptLifecycleControls } from './PromptLifecycleControls';
 import { CopyButton } from '../shared/CopyButton';
+import { Modal } from '../shared/Modal';
 
 interface Props {
   promptId: string;
@@ -597,75 +598,56 @@ export function PromptDetail({ promptId }: Props) {
         )}
       </div>
 
-      {showExitConfirm && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="unsaved-edits-title"
+      <Modal
+        id="unsaved-prompt-edits"
+        isOpen={showExitConfirm}
+        onClose={() => {
+          pendingExitActionRef.current = null;
+          setShowExitConfirm(false);
+        }}
+        ariaLabel="Unsaved edits"
+        panelStyle={{ padding: 20 }}
+      >
+        <h3
+          style={{ margin: 0, fontSize: '15px', color: 'var(--text-primary)' }}
+        >
+          Unsaved edits
+        </h3>
+        <p
           style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(0, 0, 0, 0.45)',
+            margin: '8px 0 18px',
+            fontSize: '12px',
+            lineHeight: 1.5,
+            color: 'var(--text-secondary)',
           }}
         >
-          <div
+          {describeDirtyDrafts(drafts)}
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => {
+              pendingExitActionRef.current = null;
+              setShowExitConfirm(false);
+            }}
+            style={confirmSecondaryButtonStyle}
+          >
+            Cancel
+          </button>
+          <button onClick={discardAndExit} style={confirmSecondaryButtonStyle}>
+            Discard
+          </button>
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving || !draftsAreValid}
             style={{
-              width: 420,
-              maxWidth: 'calc(100vw - 32px)',
-              padding: 20,
-              borderRadius: 8,
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.35)',
+              ...confirmPrimaryButtonStyle,
+              opacity: saving || !draftsAreValid ? 0.5 : 1,
             }}
           >
-            <h3
-              id="unsaved-edits-title"
-              style={{ margin: 0, fontSize: '15px', color: 'var(--text-primary)' }}
-            >
-              Unsaved edits
-            </h3>
-            <p
-              style={{
-                margin: '8px 0 18px',
-                fontSize: '12px',
-                lineHeight: 1.5,
-                color: 'var(--text-secondary)',
-              }}
-            >
-              {describeDirtyDrafts(drafts)}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  pendingExitActionRef.current = null;
-                  setShowExitConfirm(false);
-                }}
-                style={confirmSecondaryButtonStyle}
-              >
-                Cancel
-              </button>
-              <button onClick={discardAndExit} style={confirmSecondaryButtonStyle}>
-                Discard
-              </button>
-              <button
-                onClick={() => void handleSave()}
-                disabled={saving || !draftsAreValid}
-                style={{
-                  ...confirmPrimaryButtonStyle,
-                  opacity: saving || !draftsAreValid ? 0.5 : 1,
-                }}
-              >
-                {saving ? 'Saving...' : 'Save All'}
-              </button>
-            </div>
-          </div>
+            {saving ? 'Saving...' : 'Save All'}
+          </button>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

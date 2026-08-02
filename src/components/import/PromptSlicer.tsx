@@ -140,6 +140,8 @@ export function PromptSlicer() {
     }
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
+      e.nativeEvent.stopImmediatePropagation();
       handleFormCancel();
     }
   }

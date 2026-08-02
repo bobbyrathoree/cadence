@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { eventToBinding, normalizeKey } from './keys';
+import {
+  eventToBinding,
+  normalizeKey,
+  shouldIgnoreShortcutFromTarget,
+} from './keys';
 
 describe('keyboard shortcut normalization', () => {
   it('uses canonical Tauri arrow key names', () => {
@@ -26,5 +30,27 @@ describe('keyboard shortcut normalization', () => {
         altKey: false,
       }),
     ).toBe('CommandOrControl+Shift+Down');
+  });
+});
+
+describe('shouldIgnoreShortcutFromTarget', () => {
+  it('ignores unmodified typing but allows modifier shortcuts in text fields', () => {
+    const input = document.createElement('input');
+    expect(
+      shouldIgnoreShortcutFromTarget(input, {
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnoreShortcutFromTarget(input, {
+        metaKey: true,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(false);
   });
 });

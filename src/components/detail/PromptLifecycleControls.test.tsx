@@ -25,6 +25,9 @@ vi.mock('../../lib/context', () => ({
     activeCollectionId: null,
     refreshCounter: 0,
     setSelectedPromptId: mocks.setSelectedPromptId,
+    registerModal: vi.fn(),
+    unregisterModal: vi.fn(),
+    isTopModal: () => true,
   }),
 }));
 

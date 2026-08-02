@@ -8,7 +8,7 @@ import {
   useKeyboardShortcuts,
   usePrompts,
 } from './lib/hooks';
-import { eventToBinding } from './lib/keys';
+import { eventToBinding, shouldIgnoreShortcutFromTarget } from './lib/keys';
 import { getPrimaryVariant } from './lib/prompt';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { PromptList } from './components/prompt-list/PromptList';
@@ -34,6 +34,8 @@ function AppContent() {
     setIsImportOpen,
     isSettingsOpen,
     setIsSettingsOpen,
+    displayedPromptIds,
+    hasOpenModal,
   } = useAppContext();
 
   const { prompts: allPrompts, loading: allPromptsLoading } =
@@ -84,10 +86,8 @@ function AppContent() {
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Ignore keyboard shortcuts when typing in inputs/textareas
-      const target = e.target as HTMLElement;
-      const tag = target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      if (hasOpenModal) return;
+      if (shouldIgnoreShortcutFromTarget(e.target, e)) return;
 
       const binding = eventToBinding(e);
       const action = shortcutMap.get(binding);
@@ -159,24 +159,23 @@ function AppContent() {
           break;
         }
         case 'navigate_up': {
-          if (prompts.length === 0) return;
-          const currentIndex = prompts.findIndex(
-            (p) => p.id === selectedPromptId,
-          );
+          if (displayedPromptIds.length === 0) return;
+          const currentIndex = displayedPromptIds.indexOf(selectedPromptId ?? '');
           const nextIndex = currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0);
-          const nextId = prompts[nextIndex].id;
+          const nextId = displayedPromptIds[nextIndex];
           if (nextId !== selectedPromptId) {
             requestEditExit(() => setSelectedPromptId(nextId));
           }
           break;
         }
         case 'navigate_down': {
-          if (prompts.length === 0) return;
-          const currentIdx = prompts.findIndex(
-            (p) => p.id === selectedPromptId,
-          );
-          const nextIdx = currentIdx < 0 ? 0 : Math.min(currentIdx + 1, prompts.length - 1);
-          const nextId = prompts[nextIdx].id;
+          if (displayedPromptIds.length === 0) return;
+          const currentIdx = displayedPromptIds.indexOf(selectedPromptId ?? '');
+          const nextIdx =
+            currentIdx < 0
+              ? 0
+              : Math.min(currentIdx + 1, displayedPromptIds.length - 1);
+          const nextId = displayedPromptIds[nextIdx];
           if (nextId !== selectedPromptId) {
             requestEditExit(() => setSelectedPromptId(nextId));
           }
@@ -187,7 +186,7 @@ function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPromptId, prompts, shortcutMap, setSelectedPromptId, showToast, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen]);
+  }, [selectedPromptId, displayedPromptIds, shortcutMap, setSelectedPromptId, showToast, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen, hasOpenModal]);
 
   // Listen for cross-window "db-changed" events from Tauri
   useEffect(() => {

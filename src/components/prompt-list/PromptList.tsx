@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useAppContext } from '../../lib/context';
 import { useSearch } from '../../lib/hooks';
 import type { PromptListItem as PromptListItemType } from '../../lib/types';
@@ -16,6 +17,7 @@ export function PromptList({ prompts, promptsLoading }: Props) {
     setSelectedPromptId,
     setIsCreating,
     requestEditExit,
+    setDisplayedPromptIds,
   } = useAppContext();
 
   const { results: searchResults, loading: searchLoading } = useSearch(searchQuery);
@@ -23,6 +25,17 @@ export function PromptList({ prompts, promptsLoading }: Props) {
   const isSearching = searchQuery.length >= 2;
   const displayItems = isSearching ? searchResults : prompts;
   const loading = isSearching ? searchLoading : promptsLoading;
+  const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  useEffect(() => {
+    setDisplayedPromptIds(displayItems.map((item) => item.id));
+  }, [displayItems, setDisplayedPromptIds]);
+
+  useEffect(() => {
+    if (selectedPromptId) {
+      itemRefs.current.get(selectedPromptId)?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedPromptId]);
 
   return (
     <div
@@ -119,6 +132,10 @@ export function PromptList({ prompts, promptsLoading }: Props) {
               key={item.id}
               item={item}
               isSelected={selectedPromptId === item.id}
+              itemRef={(element) => {
+                if (element) itemRefs.current.set(item.id, element);
+                else itemRefs.current.delete(item.id);
+              }}
               onClick={() => {
                 if (item.id !== selectedPromptId) {
                   requestEditExit(() => setSelectedPromptId(item.id));

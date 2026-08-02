@@ -4,6 +4,7 @@ import { useAppContext } from '../../lib/context';
 import { useCollections } from '../../lib/hooks';
 import type { PromptUsage, PromptWithVariants } from '../../lib/types';
 import { TagPills } from './TagPills';
+import { Modal } from '../shared/Modal';
 
 interface Props {
   prompt: PromptWithVariants;
@@ -319,6 +320,7 @@ export function PromptLifecycleControls({
 
       {pendingVariantDelete && selectedVariant && (
         <ConfirmDialog
+          id={`delete-variant-${selectedVariant.id}`}
           title="Delete variant?"
           description={`Delete "${selectedVariant.label}"? This cannot be undone.`}
           confirmLabel="Delete variant"
@@ -330,6 +332,7 @@ export function PromptLifecycleControls({
 
       {showPromptDelete && deleteUsage && (
         <ConfirmDialog
+          id={`delete-prompt-${prompt.id}`}
           title={`Delete "${prompt.title}"?`}
           description={`${formatPromptUsage(deleteUsage)} The prompt will appear as removed in affected playbooks.`}
           confirmLabel="Delete prompt"
@@ -343,6 +346,7 @@ export function PromptLifecycleControls({
 }
 
 function ConfirmDialog({
+  id,
   title,
   description,
   confirmLabel,
@@ -350,6 +354,7 @@ function ConfirmDialog({
   onCancel,
   onConfirm,
 }: {
+  id: string;
   title: string;
   description: string;
   confirmLabel: string;
@@ -358,56 +363,38 @@ function ConfirmDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9500,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0, 0, 0, 0.45)',
-      }}
+    <Modal
+      id={id}
+      isOpen
+      onClose={onCancel}
+      ariaLabel={title}
+      panelStyle={{ padding: 20 }}
     >
-      <div
+      <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
+      <p
         style={{
-          width: 420,
-          maxWidth: 'calc(100vw - 32px)',
-          padding: 20,
-          borderRadius: 8,
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
+          margin: '8px 0 18px',
+          color: 'var(--text-secondary)',
+          fontSize: 12,
+          lineHeight: 1.5,
         }}
       >
-        <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
-        <p
-          style={{
-            margin: '8px 0 18px',
-            color: 'var(--text-secondary)',
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
+        {description}
+      </p>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} style={secondaryButtonStyle}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onConfirm}
+          style={{ ...primaryButtonStyle, background: '#ff453a' }}
         >
-          {description}
-        </p>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onCancel} style={secondaryButtonStyle}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onConfirm}
-            style={{ ...primaryButtonStyle, background: '#ff453a' }}
-          >
-            {busy ? 'Deleting...' : confirmLabel}
-          </button>
-        </div>
+          {busy ? 'Deleting...' : confirmLabel}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 

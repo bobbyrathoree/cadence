@@ -4,11 +4,13 @@ interface Props {
   item: PromptListItemType;
   isSelected: boolean;
   onClick: () => void;
+  itemRef?: (element: HTMLButtonElement | null) => void;
 }
 
-export function PromptListItem({ item, isSelected, onClick }: Props) {
+export function PromptListItem({ item, isSelected, onClick, itemRef }: Props) {
   return (
     <button
+      ref={itemRef}
       onClick={onClick}
       className="w-full text-left flex items-start gap-2 cursor-default"
       style={{
