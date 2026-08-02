@@ -41,7 +41,6 @@ coverage/
 .playwright-cli/
 playwright-report/
 test-results/
-*.yaml
 
 # Superpowers / brainstorming artifacts
 .superpowers/
