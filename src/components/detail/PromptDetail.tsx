@@ -99,8 +99,18 @@ function formatDate(dateStr: string | null): string {
 }
 
 export function PromptDetail({ promptId }: Props) {
-  const { isEditing, setIsEditing, refreshCounter } = useAppContext();
-  const { prompt, loading } = usePromptDetail(promptId, refreshCounter);
+  const {
+    isEditing,
+    setIsEditing,
+    refreshCounter,
+    triggerRefresh,
+    showToast,
+  } = useAppContext();
+  const {
+    data: prompt,
+    error: promptError,
+    loading,
+  } = usePromptDetail(promptId, refreshCounter);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
   // Edit-mode draft state
@@ -178,11 +188,11 @@ export function PromptDetail({ promptId }: Props) {
       });
 
       if (result.failures.length > 0) {
-        setSaveErrors(
-          result.failures.map(
-            (failure) => `Failed to save ${failure.label}: ${String(failure.error)}`,
-          ),
+        const errors = result.failures.map(
+          (failure) => `Failed to save ${failure.label}: ${String(failure.error)}`,
         );
+        setSaveErrors(errors);
+        showToast(errors.join(' '), 'error');
         return false;
       }
 
@@ -195,7 +205,7 @@ export function PromptDetail({ promptId }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [prompt, drafts, draftsAreValid, setIsEditing]);
+  }, [prompt, drafts, draftsAreValid, setIsEditing, showToast]);
 
   const discardAndExit = useCallback(() => {
     dispatchDraft({ type: 'reset' });
@@ -268,6 +278,25 @@ export function PromptDetail({ promptId }: Props) {
         style={{ color: 'var(--text-secondary)', fontSize: '13px' }}
       >
         Loading...
+      </div>
+    );
+  }
+
+  if (promptError) {
+    return (
+      <div
+        role="alert"
+        className="flex-1 flex flex-col items-center justify-center gap-2"
+        style={{ color: 'var(--text-secondary)', fontSize: 13 }}
+      >
+        <span>Couldn't load prompt</span>
+        <button
+          type="button"
+          onClick={triggerRefresh}
+          style={confirmSecondaryButtonStyle}
+        >
+          Retry
+        </button>
       </div>
     );
   }

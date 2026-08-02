@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../../lib/api';
+import { useAppContext } from '../../lib/context';
 
 interface SlicedPrompt {
   title: string;
@@ -8,6 +9,7 @@ interface SlicedPrompt {
 }
 
 export function PromptSlicer() {
+  const { showToast } = useAppContext();
   const [text, setText] = useState('');
   const [selectedText, setSelectedText] = useState('');
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
@@ -123,7 +125,7 @@ export function PromptSlicer() {
       setSelectionRange(null);
       window.getSelection()?.removeAllRanges();
     } catch (err) {
-      console.error('Failed to create prompt from slice:', err);
+      showToast(`Couldn't save prompt: ${String(err)}`, 'error');
     } finally {
       setSaving(false);
     }

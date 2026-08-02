@@ -16,11 +16,13 @@ vi.mock('../../lib/context', () => ({
 
 vi.mock('../../lib/hooks', () => ({
   usePlaybookSession: () => ({
-    session: {
+    data: {
       active_playbook_id: 'playbook-1',
       current_step: 0,
       started_at: '2026-08-02T00:00:00Z',
     },
+    error: null,
+    loading: false,
   }),
 }));
 

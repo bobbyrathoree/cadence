@@ -10,16 +10,28 @@ import type {
   KeyboardShortcut,
 } from './types';
 
+export interface FetchState<T> {
+  data: T;
+  error: Error | null;
+  loading: boolean;
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 /** Fetches the main all-prompts source once for the application shell. */
 export function usePrompts(
   refreshCounter: number,
-): { prompts: PromptListItem[]; loading: boolean } {
+): FetchState<PromptListItem[]> {
   const [prompts, setPrompts] = useState<PromptListItem[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     async function fetch() {
       try {
@@ -29,10 +41,7 @@ export function usePrompts(
           setPrompts(result);
         }
       } catch (err) {
-        console.error('usePrompts error:', err);
-        if (!cancelled) {
-          setPrompts([]);
-        }
+        if (!cancelled) setError(asError(err));
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -46,33 +55,35 @@ export function usePrompts(
     };
   }, [refreshCounter]);
 
-  return { prompts, loading };
+  return { data: prompts, error, loading };
 }
 
 export function useCollectionPrompts(
   collectionId: string | null,
   refreshCounter: number,
-): { prompts: PromptListItem[]; loading: boolean } {
+): FetchState<PromptListItem[]> {
   const [prompts, setPrompts] = useState<PromptListItem[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!collectionId) {
       setPrompts([]);
+      setError(null);
       setLoading(false);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setError(null);
     api.collections
       .getPrompts(collectionId)
       .then((result) => {
         if (!cancelled) setPrompts(result);
       })
       .catch((error) => {
-        console.error('useCollectionPrompts error:', error);
-        if (!cancelled) setPrompts([]);
+        if (!cancelled) setError(asError(error));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -83,7 +94,7 @@ export function useCollectionPrompts(
     };
   }, [collectionId, refreshCounter]);
 
-  return { prompts, loading };
+  return { data: prompts, error, loading };
 }
 
 /**
@@ -92,19 +103,22 @@ export function useCollectionPrompts(
 export function usePromptDetail(
   id: string | null,
   refreshCounter?: number,
-): { prompt: PromptWithVariants | null; loading: boolean } {
+): FetchState<PromptWithVariants | null> {
   const [prompt, setPrompt] = useState<PromptWithVariants | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!id) {
       setPrompt(null);
+      setError(null);
       setLoading(false);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     api.prompts
       .get(id)
@@ -112,8 +126,7 @@ export function usePromptDetail(
         if (!cancelled) setPrompt(result);
       })
       .catch((err) => {
-        console.error('usePromptDetail error:', err);
-        if (!cancelled) setPrompt(null);
+        if (!cancelled) setError(asError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -122,7 +135,7 @@ export function usePromptDetail(
     return () => { cancelled = true; };
   }, [id, refreshCounter]);
 
-  return { prompt, loading };
+  return { data: prompt, error, loading };
 }
 
 /**
@@ -130,13 +143,15 @@ export function usePromptDetail(
  */
 export function useTags(
   refreshCounter: number,
-): { tags: Tag[]; loading: boolean } {
+): FetchState<Tag[]> {
   const [tags, setTags] = useState<Tag[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     api.tags
       .list()
@@ -144,8 +159,7 @@ export function useTags(
         if (!cancelled) setTags(result);
       })
       .catch((err) => {
-        console.error('useTags error:', err);
-        if (!cancelled) setTags([]);
+        if (!cancelled) setError(asError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -154,7 +168,7 @@ export function useTags(
     return () => { cancelled = true; };
   }, [refreshCounter]);
 
-  return { tags, loading };
+  return { data: tags, error, loading };
 }
 
 /**
@@ -162,13 +176,15 @@ export function useTags(
  */
 export function useCollections(
   refreshCounter: number,
-): { collections: Collection[]; loading: boolean } {
+): FetchState<Collection[]> {
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     api.collections
       .list()
@@ -176,8 +192,7 @@ export function useCollections(
         if (!cancelled) setCollections(result);
       })
       .catch((err) => {
-        console.error('useCollections error:', err);
-        if (!cancelled) setCollections([]);
+        if (!cancelled) setError(asError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -186,7 +201,7 @@ export function useCollections(
     return () => { cancelled = true; };
   }, [refreshCounter]);
 
-  return { collections, loading };
+  return { data: collections, error, loading };
 }
 
 /**
@@ -194,13 +209,15 @@ export function useCollections(
  */
 export function usePlaybooks(
   refreshCounter: number,
-): { playbooks: Playbook[]; loading: boolean } {
+): FetchState<Playbook[]> {
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     api.playbooks
       .list()
@@ -208,8 +225,7 @@ export function usePlaybooks(
         if (!cancelled) setPlaybooks(result);
       })
       .catch((err) => {
-        console.error('usePlaybooks error:', err);
-        if (!cancelled) setPlaybooks([]);
+        if (!cancelled) setError(asError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -218,7 +234,7 @@ export function usePlaybooks(
     return () => { cancelled = true; };
   }, [refreshCounter]);
 
-  return { playbooks, loading };
+  return { data: playbooks, error, loading };
 }
 
 /**
@@ -226,13 +242,15 @@ export function usePlaybooks(
  */
 export function useKeyboardShortcuts(
   refreshCounter: number,
-): { shortcuts: KeyboardShortcut[]; loading: boolean } {
+): FetchState<KeyboardShortcut[]> {
   const [shortcuts, setShortcuts] = useState<KeyboardShortcut[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     api.settings
       .getShortcuts()
@@ -240,8 +258,7 @@ export function useKeyboardShortcuts(
         if (!cancelled) setShortcuts(result);
       })
       .catch((err) => {
-        console.error('useKeyboardShortcuts error:', err);
-        if (!cancelled) setShortcuts([]);
+        if (!cancelled) setError(asError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -250,7 +267,7 @@ export function useKeyboardShortcuts(
     return () => { cancelled = true; };
   }, [refreshCounter]);
 
-  return { shortcuts, loading };
+  return { data: shortcuts, error, loading };
 }
 
 /**
@@ -258,8 +275,10 @@ export function useKeyboardShortcuts(
  */
 export function useSearch(
   query: string,
-): { results: PromptListItem[]; loading: boolean } {
+  retryCounter = 0,
+): FetchState<PromptListItem[]> {
   const [results, setResults] = useState<PromptListItem[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -270,11 +289,13 @@ export function useSearch(
 
     if (query.length < 2) {
       setResults([]);
+      setError(null);
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setError(null);
 
     timerRef.current = setTimeout(() => {
       api
@@ -283,8 +304,7 @@ export function useSearch(
           setResults(result);
         })
         .catch((err) => {
-          console.error('useSearch error:', err);
-          setResults([]);
+          setError(asError(err));
         })
         .finally(() => {
           setLoading(false);
@@ -296,9 +316,9 @@ export function useSearch(
         clearTimeout(timerRef.current);
       }
     };
-  }, [query]);
+  }, [query, retryCounter]);
 
-  return { results, loading };
+  return { data: results, error, loading };
 }
 
 /**
@@ -306,13 +326,15 @@ export function useSearch(
  */
 export function usePlaybookSession(
   refreshCounter: number,
-): { session: PlaybookSession | null; loading: boolean } {
+): FetchState<PlaybookSession | null> {
   const [session, setSession] = useState<PlaybookSession | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     api.session
       .get()
@@ -320,8 +342,7 @@ export function usePlaybookSession(
         if (!cancelled) setSession(result);
       })
       .catch((err) => {
-        console.error('usePlaybookSession error:', err);
-        if (!cancelled) setSession(null);
+        if (!cancelled) setError(asError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -330,5 +351,5 @@ export function usePlaybookSession(
     return () => { cancelled = true; };
   }, [refreshCounter]);
 
-  return { session, loading };
+  return { data: session, error, loading };
 }

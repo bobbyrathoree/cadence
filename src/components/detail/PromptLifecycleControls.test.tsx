@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   deletePrompt: vi.fn(),
   addVariant: vi.fn(),
   setSelectedPromptId: vi.fn(),
+  showToast: vi.fn(),
 }));
 
 vi.mock('../../lib/context', () => ({
@@ -28,11 +29,12 @@ vi.mock('../../lib/context', () => ({
     registerModal: vi.fn(),
     unregisterModal: vi.fn(),
     isTopModal: () => true,
+    showToast: mocks.showToast,
   }),
 }));
 
 vi.mock('../../lib/hooks', () => ({
-  useCollections: () => ({ collections: [], loading: false }),
+  useCollections: () => ({ data: [], error: null, loading: false }),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -158,6 +160,34 @@ describe('PromptLifecycleControls', () => {
       ),
     );
     expect(onSelectVariant).toHaveBeenCalledWith('variant-2');
+  });
+
+  it('shows a failure toast when prompt deletion fails', async () => {
+    mocks.deletePrompt.mockRejectedValueOnce(new Error('delete failed'));
+    render(
+      <PromptLifecycleControls
+        prompt={prompt()}
+        selectedVariantId="variant-1"
+        isEditing={false}
+        hasUnsavedDrafts={false}
+        onSelectVariant={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete prompt' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Delete "Prompt one"?',
+    });
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete prompt' }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.showToast).toHaveBeenCalledWith(
+        expect.stringContaining('delete failed'),
+        'error',
+      ),
+    );
   });
 });
 

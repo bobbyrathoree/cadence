@@ -16,7 +16,8 @@ export function DetailPanel({ prompts }: { prompts: PromptListItem[] }) {
     isCreating,
     playbookBuilderMode,
   } = useAppContext();
-  const { playbooks } = usePlaybooks(refreshCounter);
+  const { data: playbooks, error: playbooksError } =
+    usePlaybooks(refreshCounter);
 
   const showPlaybook = activeView === 'playbook';
 
@@ -31,6 +32,14 @@ export function DetailPanel({ prompts }: { prompts: PromptListItem[] }) {
         <PlaybookBuilder prompts={prompts} />
       ) : showPlaybook && activePlaybookId ? (
         <PlaybookStepper playbookId={activePlaybookId} />
+      ) : showPlaybook && playbooksError ? (
+        <div
+          role="alert"
+          className="flex-1 flex items-center justify-center"
+          style={{ color: '#ff453a', fontSize: 13 }}
+        >
+          Couldn't load playbooks
+        </div>
       ) : showPlaybook && playbooks.length === 0 ? (
         <PlaybookBillboard />
       ) : selectedPromptId ? (

@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PromptListItem } from '../../lib/types';
 import { PromptList } from './PromptList';
@@ -6,11 +6,12 @@ import { PromptList } from './PromptList';
 const mocks = vi.hoisted(() => ({
   setDisplayedPromptIds: vi.fn(),
   scrollIntoView: vi.fn(),
+  searchQuery: 'query',
 }));
 
 vi.mock('../../lib/context', () => ({
   useAppContext: () => ({
-    searchQuery: 'query',
+    searchQuery: mocks.searchQuery,
     setSearchQuery: vi.fn(),
     selectedPromptId: 'search-2',
     setSelectedPromptId: vi.fn(),
@@ -22,7 +23,8 @@ vi.mock('../../lib/context', () => ({
 
 vi.mock('../../lib/hooks', () => ({
   useSearch: () => ({
-    results: [item('search-1'), item('search-2')],
+    data: [item('search-1'), item('search-2')],
+    error: null,
     loading: false,
   }),
 }));
@@ -51,7 +53,15 @@ describe('PromptList displayed navigation source', () => {
   afterEach(cleanup);
 
   it('publishes search-result IDs and scrolls the selected displayed row', async () => {
-    render(<PromptList prompts={[item('backing-page')]} promptsLoading={false} />);
+    mocks.searchQuery = 'query';
+    render(
+      <PromptList
+        prompts={[item('backing-page')]}
+        promptsLoading={false}
+        promptsError={null}
+        onRetry={vi.fn()}
+      />,
+    );
 
     await waitFor(() =>
       expect(mocks.setDisplayedPromptIds).toHaveBeenCalledWith([
@@ -60,5 +70,22 @@ describe('PromptList displayed navigation source', () => {
       ]),
     );
     expect(mocks.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it('renders a retryable error instead of an empty state', () => {
+    mocks.searchQuery = '';
+    const onRetry = vi.fn();
+    render(
+      <PromptList
+        prompts={[]}
+        promptsLoading={false}
+        promptsError={new Error('offline')}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load prompts");
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

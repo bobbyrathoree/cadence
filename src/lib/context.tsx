@@ -12,6 +12,13 @@ import {
 
 export type ActiveView = 'all' | 'favorites' | 'recents' | 'collection' | 'playbook';
 export type PlaybookBuilderMode = 'create' | 'edit';
+export type ToastTone = 'default' | 'error';
+
+export interface ToastState {
+  message: string;
+  visible: boolean;
+  tone: ToastTone;
+}
 
 export interface AppContextType {
   // Navigation
@@ -58,6 +65,11 @@ export interface AppContextType {
   registerModal: (id: string) => void;
   unregisterModal: (id: string) => void;
   isTopModal: (id: string) => boolean;
+
+  // Notifications
+  toast: ToastState;
+  showToast: (message: string, tone?: ToastTone) => void;
+  hideToast: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -77,6 +89,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [modalStack, setModalStack] = useState<string[]>([]);
+  const [toast, setToast] = useState<ToastState>({
+    message: '',
+    visible: false,
+    tone: 'default',
+  });
 
   const triggerRefresh = useCallback(() => {
     setRefreshCounter((c) => c + 1);
@@ -110,6 +127,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [modalStack],
   );
 
+  const showToast = useCallback(
+    (message: string, tone: ToastTone = 'default') => {
+      setToast({ message, visible: true, tone });
+    },
+    [],
+  );
+
+  const hideToast = useCallback(() => {
+    setToast((current) => ({ ...current, visible: false }));
+  }, []);
+
   const value = useMemo<AppContextType>(
     () => ({
       activeView,
@@ -141,6 +169,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       registerModal,
       unregisterModal,
       isTopModal,
+      toast,
+      showToast,
+      hideToast,
     }),
     [
       activeView,
@@ -161,6 +192,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       registerModal,
       unregisterModal,
       isTopModal,
+      toast,
+      showToast,
+      hideToast,
     ],
   );
 

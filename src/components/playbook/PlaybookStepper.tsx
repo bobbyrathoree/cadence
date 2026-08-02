@@ -14,13 +14,21 @@ interface Props {
 export function PlaybookStepper({ playbookId }: Props) {
   const [playbook, setPlaybook] = useState<PlaybookWithSteps | null>(null);
   const [loading, setLoading] = useState(true);
-  const { refreshCounter, setPlaybookBuilderMode } = useAppContext();
-  const { session } = usePlaybookSession(refreshCounter);
+  const [fetchError, setFetchError] = useState<Error | null>(null);
+  const {
+    refreshCounter,
+    triggerRefresh,
+    setPlaybookBuilderMode,
+    showToast,
+  } = useAppContext();
+  const { data: session, error: sessionError } =
+    usePlaybookSession(refreshCounter);
 
   // Fetch the playbook
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFetchError(null);
 
     api.playbooks
       .get(playbookId)
@@ -28,8 +36,9 @@ export function PlaybookStepper({ playbookId }: Props) {
         if (!cancelled) setPlaybook(result);
       })
       .catch((err) => {
-        console.error('PlaybookStepper fetch error:', err);
-        if (!cancelled) setPlaybook(null);
+        if (!cancelled) setFetchError(
+          err instanceof Error ? err : new Error(String(err)),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -52,17 +61,17 @@ export function PlaybookStepper({ playbookId }: Props) {
     try {
       await api.session.start(playbookId);
     } catch (err) {
-      console.error('Failed to start session:', err);
+      showToast(`Couldn't start session: ${String(err)}`, 'error');
     }
-  }, [playbookId]);
+  }, [playbookId, showToast]);
 
   const handleEndSession = useCallback(async () => {
     try {
       await api.session.end();
     } catch (err) {
-      console.error('Failed to end session:', err);
+      showToast(`Couldn't end session: ${String(err)}`, 'error');
     }
-  }, []);
+  }, [showToast]);
 
   const handleCopyAndAdvance = useCallback(
     async ({ promptId, variantId, content }: PlaybookCopyTarget) => {
@@ -73,10 +82,10 @@ export function PlaybookStepper({ playbookId }: Props) {
           await api.session.advance();
         }
       } catch (err) {
-        console.error('Copy/advance failed:', err);
+        showToast(`Couldn't copy playbook step: ${String(err)}`, 'error');
       }
     },
-    [isSessionActive],
+    [isSessionActive, showToast],
   );
 
   const handleSkip = useCallback(async () => {
@@ -84,9 +93,9 @@ export function PlaybookStepper({ playbookId }: Props) {
     try {
       await api.session.advance();
     } catch (err) {
-      console.error('Skip step failed:', err);
+      showToast(`Couldn't skip playbook step: ${String(err)}`, 'error');
     }
-  }, [isSessionActive]);
+  }, [isSessionActive, showToast]);
 
   function getStepStatus(index: number): StepStatus {
     if (!isSessionActive) return 'pending';
@@ -102,6 +111,21 @@ export function PlaybookStepper({ playbookId }: Props) {
         style={{ color: 'var(--text-secondary)', fontSize: 13 }}
       >
         Loading playbook...
+      </div>
+    );
+  }
+
+  if (fetchError || sessionError) {
+    return (
+      <div
+        role="alert"
+        className="flex-1 flex flex-col items-center justify-center gap-2"
+        style={{ color: 'var(--text-secondary)', fontSize: 13 }}
+      >
+        <span>Couldn't load playbook</span>
+        <button type="button" onClick={triggerRefresh}>
+          Retry
+        </button>
       </div>
     );
   }

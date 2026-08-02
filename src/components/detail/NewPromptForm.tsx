@@ -3,7 +3,7 @@ import { api } from '../../lib/api';
 import { useAppContext } from '../../lib/context';
 
 export function NewPromptForm() {
-  const { setIsCreating, setSelectedPromptId } = useAppContext();
+  const { setIsCreating, setSelectedPromptId, showToast } = useAppContext();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tagsInput, setTagsInput] = useState('');
@@ -35,11 +35,11 @@ export function NewPromptForm() {
       setSelectedPromptId(created.id);
       setIsCreating(false);
     } catch (err) {
-      console.error('Failed to create prompt:', err);
+      showToast(`Couldn't save prompt: ${String(err)}`, 'error');
     } finally {
       setSaving(false);
     }
-  }, [title, content, tagsInput, setSelectedPromptId, setIsCreating]);
+  }, [title, content, tagsInput, setSelectedPromptId, setIsCreating, showToast]);
 
   const handleCancel = useCallback(() => {
     setIsCreating(false);

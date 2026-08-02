@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../lib/context';
 import { useSearch } from '../../lib/hooks';
 import type { PromptListItem as PromptListItemType } from '../../lib/types';
@@ -7,9 +7,16 @@ import { PromptListItem } from './PromptListItem';
 interface Props {
   prompts: PromptListItemType[];
   promptsLoading: boolean;
+  promptsError: Error | null;
+  onRetry: () => void;
 }
 
-export function PromptList({ prompts, promptsLoading }: Props) {
+export function PromptList({
+  prompts,
+  promptsLoading,
+  promptsError,
+  onRetry,
+}: Props) {
   const {
     searchQuery,
     setSearchQuery,
@@ -20,11 +27,17 @@ export function PromptList({ prompts, promptsLoading }: Props) {
     setDisplayedPromptIds,
   } = useAppContext();
 
-  const { results: searchResults, loading: searchLoading } = useSearch(searchQuery);
+  const [searchRetryCounter, setSearchRetryCounter] = useState(0);
+  const {
+    data: searchResults,
+    error: searchError,
+    loading: searchLoading,
+  } = useSearch(searchQuery, searchRetryCounter);
 
   const isSearching = searchQuery.length >= 2;
   const displayItems = isSearching ? searchResults : prompts;
   const loading = isSearching ? searchLoading : promptsLoading;
+  const error = isSearching ? searchError : promptsError;
   const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   useEffect(() => {
@@ -112,12 +125,38 @@ export function PromptList({ prompts, promptsLoading }: Props) {
 
       {/* Scrollable list */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {loading && displayItems.length === 0 ? (
           <div
             className="p-4 text-center"
             style={{ fontSize: '12px', color: 'var(--text-secondary)' }}
           >
             Loading...
+          </div>
+        ) : error ? (
+          <div
+            role="alert"
+            className="p-4 text-center"
+            style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+          >
+            <div>Couldn't load prompts</div>
+            <button
+              type="button"
+              onClick={() => {
+                if (isSearching) setSearchRetryCounter((counter) => counter + 1);
+                else onRetry();
+              }}
+              style={{
+                marginTop: 8,
+                padding: '5px 10px',
+                border: '1px solid var(--border)',
+                borderRadius: 5,
+                background: 'transparent',
+                color: 'var(--accent)',
+                fontSize: 11,
+              }}
+            >
+              Retry
+            </button>
           </div>
         ) : displayItems.length === 0 ? (
           <div

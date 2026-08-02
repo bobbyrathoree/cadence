@@ -34,8 +34,9 @@ export function PromptLifecycleControls({
     activeCollectionId,
     refreshCounter,
     setSelectedPromptId,
+    showToast,
   } = useAppContext();
-  const { collections } = useCollections(refreshCounter);
+  const { data: collections } = useCollections(refreshCounter);
   const manualCollections = useMemo(
     () => collections.filter((collection) => !collection.is_smart),
     [collections],
@@ -81,7 +82,9 @@ export function PromptLifecycleControls({
     try {
       await operation();
     } catch (operationError) {
-      setError(String(operationError));
+      const message = String(operationError);
+      setError(message);
+      showToast(message, 'error');
     } finally {
       setBusy(false);
     }

@@ -150,6 +150,7 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
     refreshCounter,
     setIsImportOpen,
     setIsSettingsOpen,
+    showToast,
   } = useAppContext();
 
   const [exporting, setExporting] = useState(false);
@@ -158,10 +159,13 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
   const [collectionError, setCollectionError] = useState<string | null>(null);
   const [savingCollection, setSavingCollection] = useState(false);
 
-  const { collections } = useCollections(refreshCounter);
-  const { playbooks } = usePlaybooks(refreshCounter);
-  const { tags } = useTags(refreshCounter);
-  const { session } = usePlaybookSession(refreshCounter);
+  const { data: collections, error: collectionsError } =
+    useCollections(refreshCounter);
+  const { data: playbooks, error: playbooksError } =
+    usePlaybooks(refreshCounter);
+  const { data: tags, error: tagsError } = useTags(refreshCounter);
+  const { data: session, error: sessionError } =
+    usePlaybookSession(refreshCounter);
 
   const allCount = prompts.length;
   const favCount = prompts.filter((p) => p.is_favorite).length;
@@ -352,7 +356,11 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
             {collectionError}
           </div>
         )}
-        {regularCollections.length === 0 ? (
+        {collectionsError ? (
+          <div role="alert" className="px-2.5 py-1" style={{ fontSize: 11, color: '#ff453a' }}>
+            Couldn't load collections
+          </div>
+        ) : regularCollections.length === 0 ? (
           <div
             className="px-2.5 py-1"
             style={{ fontSize: '11px', color: 'var(--text-secondary)' }}
@@ -410,7 +418,11 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
         >
           Playbooks
         </SectionHeader>
-        {playbooks.length === 0 ? (
+        {playbooksError || sessionError ? (
+          <div role="alert" className="px-2.5 py-1" style={{ fontSize: 11, color: '#ff453a' }}>
+            Couldn't load playbooks
+          </div>
+        ) : playbooks.length === 0 ? (
           <div
             className="px-2.5 py-1"
             style={{ fontSize: '11px', color: 'var(--text-secondary)' }}
@@ -459,7 +471,11 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
       {/* Tags */}
       <div className="px-2 mt-auto">
         <SectionHeader>Tags</SectionHeader>
-        {tags.length === 0 ? (
+        {tagsError ? (
+          <div role="alert" className="px-2.5 py-1" style={{ fontSize: 11, color: '#ff453a' }}>
+            Couldn't load tags
+          </div>
+        ) : tags.length === 0 ? (
           <div
             className="px-2.5 py-1"
             style={{ fontSize: '11px', color: 'var(--text-secondary)' }}
@@ -564,7 +580,7 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
               } catch (err) {
-                console.error('Export failed:', err);
+                showToast(`Couldn't export prompts: ${String(err)}`, 'error');
               } finally {
                 setExporting(false);
               }

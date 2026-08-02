@@ -546,9 +546,11 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
               </span>
             )}
             {result.errors.length > 0 && (
-              <span style={{ color: '#ff453a', fontWeight: 500 }}>
-                {result.errors.length} error{result.errors.length !== 1 ? 's' : ''}
-              </span>
+              <div role="alert" style={{ color: '#ff453a', fontWeight: 500 }}>
+                {result.errors.map((error, index) => (
+                  <div key={`${index}-${error}`}>{error}</div>
+                ))}
+              </div>
             )}
             {result.imported > 0 && result.errors.length === 0 && result.skipped === 0 && (
               <span style={{ color: 'var(--text-secondary)' }}>

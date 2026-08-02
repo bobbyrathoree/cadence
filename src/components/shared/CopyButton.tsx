@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api } from '../../lib/api';
+import { useAppContext } from '../../lib/context';
 
 interface Props {
   content: string;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function CopyButton({ content, promptId, variantId, onCopy }: Props) {
+  const { showToast } = useAppContext();
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -26,7 +28,7 @@ export function CopyButton({ content, promptId, variantId, onCopy }: Props) {
 
       onCopy?.();
     } catch (err) {
-      console.error('Copy failed:', err);
+      showToast(`Couldn't copy prompt: ${String(err)}`, 'error');
     }
   }
 

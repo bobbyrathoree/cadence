@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 interface Props {
   message: string;
   visible: boolean;
+  tone?: 'default' | 'error';
   onHide?: () => void;
 }
 
@@ -10,7 +11,7 @@ interface Props {
  * A brief notification pill at the bottom center of the screen.
  * Auto-hides after 1.5 seconds.
  */
-export function Toast({ message, visible, onHide }: Props) {
+export function Toast({ message, visible, tone = 'default', onHide }: Props) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -41,7 +42,8 @@ export function Toast({ message, visible, onHide }: Props) {
         zIndex: 9999,
         padding: '8px 20px',
         borderRadius: 20,
-        background: 'rgba(30, 30, 34, 0.92)',
+        background:
+          tone === 'error' ? 'rgba(145, 32, 29, 0.96)' : 'rgba(30, 30, 34, 0.92)',
         color: '#ffffff',
         fontSize: 12,
         fontWeight: 500,

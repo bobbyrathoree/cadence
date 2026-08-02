@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppProvider, useAppContext } from './lib/context';
@@ -36,15 +36,24 @@ function AppContent() {
     setIsSettingsOpen,
     displayedPromptIds,
     hasOpenModal,
+    toast,
+    showToast,
+    hideToast,
   } = useAppContext();
 
-  const { prompts: allPrompts, loading: allPromptsLoading } =
-    usePrompts(refreshCounter);
-  const { prompts: collectionPrompts, loading: collectionPromptsLoading } =
-    useCollectionPrompts(
-      activeView === 'collection' ? activeCollectionId : null,
-      refreshCounter,
-    );
+  const {
+    data: allPrompts,
+    error: allPromptsError,
+    loading: allPromptsLoading,
+  } = usePrompts(refreshCounter);
+  const {
+    data: collectionPrompts,
+    error: collectionPromptsError,
+    loading: collectionPromptsLoading,
+  } = useCollectionPrompts(
+    activeView === 'collection' ? activeCollectionId : null,
+    refreshCounter,
+  );
   const prompts = useMemo(() => {
     if (activeView === 'collection') return collectionPrompts;
     if (activeView === 'favorites') {
@@ -61,16 +70,9 @@ function AppContent() {
   }, [activeView, allPrompts, collectionPrompts]);
   const promptsLoading =
     activeView === 'collection' ? collectionPromptsLoading : allPromptsLoading;
-  const { shortcuts } = useKeyboardShortcuts(refreshCounter);
-
-  // Toast state
-  const [toast, setToast] = useState({ message: '', visible: false });
-  const showToast = useCallback((message: string) => {
-    setToast({ message, visible: true });
-  }, []);
-  const hideToast = useCallback(() => {
-    setToast((prev) => ({ ...prev, visible: false }));
-  }, []);
+  const promptsError =
+    activeView === 'collection' ? collectionPromptsError : allPromptsError;
+  const { data: shortcuts } = useKeyboardShortcuts(refreshCounter);
 
   // Build reverse lookup map: binding -> action (skip global shortcuts handled by Rust)
   const shortcutMap = useMemo(() => {
@@ -116,7 +118,9 @@ function AppContent() {
               .then((isFav) => {
                 showToast(isFav ? 'Added to Favorites' : 'Removed from Favorites');
               })
-              .catch((err) => console.error('Toggle favorite failed:', err));
+              .catch((err) =>
+                showToast(`Couldn't update favorite: ${String(err)}`, 'error'),
+              );
           }
           break;
         }
@@ -151,7 +155,9 @@ function AppContent() {
                 showToast('Copied to clipboard');
               }
             })
-            .catch((err) => console.error('Copy shortcut failed:', err));
+            .catch((err) =>
+              showToast(`Couldn't copy prompt: ${String(err)}`, 'error'),
+            );
           break;
         }
         case 'deselect': {
@@ -204,9 +210,19 @@ function AppContent() {
       style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
       <Sidebar prompts={allPrompts} />
-      <PromptList prompts={prompts} promptsLoading={promptsLoading} />
+      <PromptList
+        prompts={prompts}
+        promptsLoading={promptsLoading}
+        promptsError={promptsError}
+        onRetry={triggerRefresh}
+      />
       <DetailPanel prompts={allPrompts} />
-      <Toast message={toast.message} visible={toast.visible} onHide={hideToast} />
+      <Toast
+        message={toast.message}
+        visible={toast.visible}
+        tone={toast.tone}
+        onHide={hideToast}
+      />
       <ImportModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
       <SettingsModal
         isOpen={isSettingsOpen}

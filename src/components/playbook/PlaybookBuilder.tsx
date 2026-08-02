@@ -36,6 +36,7 @@ export function PlaybookBuilder({ prompts }: Props) {
     playbookBuilderMode,
     setPlaybookBuilderMode,
     setActivePlaybookId,
+    showToast,
   } = useAppContext();
   const [draft, setDraft] = useState<PlaybookDraft>(() => createPlaybookDraft());
   const [loading, setLoading] = useState(playbookBuilderMode === 'edit');
@@ -210,6 +211,7 @@ export function PlaybookBuilder({ prompts }: Props) {
     } catch (saveError) {
       const message = String(saveError);
       setError(message);
+      showToast(`Couldn't save playbook: ${message}`, 'error');
       setSessionConflict(
         message.includes('End the active session to edit this playbook'),
       );
@@ -225,7 +227,9 @@ export function PlaybookBuilder({ prompts }: Props) {
       await api.session.end();
       setSessionConflict(false);
     } catch (endError) {
-      setError(String(endError));
+      const message = String(endError);
+      setError(message);
+      showToast(`Couldn't end session: ${message}`, 'error');
       setSaving(false);
       return;
     }
