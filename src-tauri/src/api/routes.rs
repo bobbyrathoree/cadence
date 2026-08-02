@@ -75,6 +75,23 @@ where
         .map_err(|error| AppError::internal(format!("Blocking task failed: {error}")))?
 }
 
+async fn run_mutation<T, F>(state: Arc<ApiState>, operation: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut Connection) -> AppResult<T> + Send + 'static,
+{
+    let operation_state = state.clone();
+    let result = run_blocking(move || {
+        let mut conn = lock_db(&operation_state)?;
+        operation(&mut conn)
+    })
+    .await;
+    if result.is_ok() {
+        state.emit_db_changed();
+    }
+    result
+}
+
 fn lock_db(state: &ApiState) -> AppResult<MutexGuard<'_, Connection>> {
     state
         .db
@@ -163,9 +180,8 @@ async fn create_prompt(
     Json(request): Json<CreatePromptRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::create_prompt(&mut conn, request)
+        run_mutation(state, move |conn| {
+            prompt_service::create_prompt(conn, request)
         })
         .await,
     )
@@ -187,22 +203,15 @@ async fn update_prompt(
     Json(request): Json<UpdatePromptRequest>,
 ) -> Response {
     empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::update_prompt(&mut conn, &id, request)
+        run_mutation(state, move |conn| {
+            prompt_service::update_prompt(conn, &id, request)
         })
         .await,
     )
 }
 
 async fn delete_prompt(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
-    empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::delete_prompt(&mut conn, &id)
-        })
-        .await,
-    )
+    empty_result(run_mutation(state, move |conn| prompt_service::delete_prompt(conn, &id)).await)
 }
 
 #[derive(Deserialize)]
@@ -217,9 +226,8 @@ async fn add_variant(
     Json(request): Json<AddVariantRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::add_variant(&mut conn, &id, &request.label, &request.content)
+        run_mutation(state, move |conn| {
+            prompt_service::add_variant(conn, &id, &request.label, &request.content)
         })
         .await,
     )
@@ -237,27 +245,15 @@ async fn update_variant(
     Json(request): Json<UpdateVariantRequest>,
 ) -> Response {
     empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::update_variant(
-                &mut conn,
-                &id,
-                &request.content,
-                request.label.as_deref(),
-            )
+        run_mutation(state, move |conn| {
+            prompt_service::update_variant(conn, &id, &request.content, request.label.as_deref())
         })
         .await,
     )
 }
 
 async fn delete_variant(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
-    empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::delete_variant(&mut conn, &id)
-        })
-        .await,
-    )
+    empty_result(run_mutation(state, move |conn| prompt_service::delete_variant(conn, &id)).await)
 }
 
 async fn list_tags(State(state): State<Arc<ApiState>>) -> Response {
@@ -275,9 +271,8 @@ async fn create_tag(
     Json(request): Json<CreateTagRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            tag_service::create_or_update_tag(&mut conn, request)
+        run_mutation(state, move |conn| {
+            tag_service::create_or_update_tag(conn, request)
         })
         .await,
     )
@@ -294,9 +289,8 @@ async fn add_tags_to_prompt(
     Json(request): Json<AddTagsRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            tag_service::add_tags_to_prompt(&mut conn, &id, &request.tags)
+        run_mutation(state, move |conn| {
+            tag_service::add_tags_to_prompt(conn, &id, &request.tags)
         })
         .await,
     )
@@ -307,9 +301,8 @@ async fn remove_tag_from_prompt(
     Path((prompt_id, tag_id)): Path<(String, String)>,
 ) -> Response {
     empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            tag_service::remove_tag_from_prompt(&mut conn, &prompt_id, &tag_id)
+        run_mutation(state, move |conn| {
+            tag_service::remove_tag_from_prompt(conn, &prompt_id, &tag_id)
         })
         .await,
     )
@@ -330,9 +323,8 @@ async fn create_collection(
     Json(request): Json<CreateCollectionRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            collection_service::create_collection(&mut conn, request)
+        run_mutation(state, move |conn| {
+            collection_service::create_collection(conn, request)
         })
         .await,
     )
@@ -362,9 +354,8 @@ async fn add_prompt_to_collection(
     Json(request): Json<AddPromptToCollectionRequest>,
 ) -> Response {
     empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            collection_service::add_prompt_to_collection(&mut conn, &id, &request.prompt_id)
+        run_mutation(state, move |conn| {
+            collection_service::add_prompt_to_collection(conn, &id, &request.prompt_id)
         })
         .await,
     )
@@ -404,9 +395,8 @@ async fn record_copy(
     Json(request): Json<RecordCopyRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            prompt_service::record_copy(&mut conn, &id, request.variant_id.as_deref())
+        run_mutation(state, move |conn| {
+            prompt_service::record_copy(conn, &id, request.variant_id.as_deref())
                 .map(|content| RecordCopyResponse { content })
         })
         .await,
@@ -418,12 +408,11 @@ async fn import_prompts(
     Json(request): Json<import_export::ImportData>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
+        run_mutation(state, move |conn| {
             let json = serde_json::to_string(&request).map_err(|error| {
                 AppError::internal(format!("Import serialization failed: {error}"))
             })?;
-            let mut conn = lock_db(&state)?;
-            import_export::import_json(&mut conn, &json)
+            import_export::import_json(conn, &json)
         })
         .await,
     )
@@ -466,13 +455,8 @@ async fn create_playbook(
     Json(request): Json<CreatePlaybookRequest>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            playbook_service::create_playbook(
-                &mut conn,
-                &request.title,
-                request.description.as_deref(),
-            )
+        run_mutation(state, move |conn| {
+            playbook_service::create_playbook(conn, &request.title, request.description.as_deref())
         })
         .await,
     )
@@ -490,9 +474,8 @@ async fn get_playbook(State(state): State<Arc<ApiState>>, Path(id): Path<String>
 
 async fn delete_playbook(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
     empty_result(
-        run_blocking(move || {
-            let mut conn = lock_db(&state)?;
-            playbook_service::delete_playbook(&mut conn, &id)
+        run_mutation(state, move |conn| {
+            playbook_service::delete_playbook(conn, &id)
         })
         .await,
     )

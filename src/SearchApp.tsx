@@ -1,8 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { FloatingSearch } from './components/search/FloatingSearch';
 
 export function SearchApp() {
+  const [revision, setRevision] = useState(0);
+  const [shownRevision, setShownRevision] = useState(0);
+
+  useEffect(() => {
+    const unlistenDbChanged = listen('db-changed', () => {
+      setRevision((current) => current + 1);
+    });
+    const unlistenSearchShown = listen('search-shown', () => {
+      setRevision((current) => current + 1);
+      setShownRevision((current) => current + 1);
+    });
+
+    return () => {
+      unlistenDbChanged.then((unlisten) => unlisten());
+      unlistenSearchShown.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlistenFocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (!focused) {
+        invoke('hide_search_window').catch(console.error);
+      }
+    });
+    return () => {
+      unlistenFocus.then((unlisten) => unlisten());
+    };
+  }, []);
+
   // Global ESC handler to hide the search window
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -27,7 +58,7 @@ export function SearchApp() {
         flexDirection: 'column',
       }}
     >
-      <FloatingSearch />
+      <FloatingSearch revision={revision} shownRevision={shownRevision} />
     </div>
   );
 }

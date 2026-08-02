@@ -9,6 +9,7 @@ use tauri::{Emitter, Manager};
 use cadence_lib::api::lifecycle::ApiLifecycle;
 use cadence_lib::commands;
 use cadence_lib::db;
+use cadence_lib::search_window::{search_window, Mode as SearchWindowMode};
 use cadence_lib::seed;
 use cadence_lib::state::AppState;
 
@@ -20,11 +21,8 @@ fn hide_search_window(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn show_search_window(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("search") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+fn show_search_window(app: tauri::AppHandle) -> Result<(), String> {
+    search_window(&app, SearchWindowMode::Show)
 }
 
 fn main() {
@@ -98,6 +96,7 @@ fn main() {
             let api_startup = tauri::async_runtime::block_on(async {
                 let state = app.state::<AppState>();
                 let mut api = state.api.lock().await;
+                api.set_app_handle(handle.clone());
                 api.startup(&state.db).await
             });
             if let Err(error) = api_startup {
@@ -130,13 +129,10 @@ fn main() {
                 app.global_shortcut()
                     .on_shortcut(shortcut_binding.as_str(), move |_app, _shortcut, event| {
                         if event.state == ShortcutState::Pressed {
-                            if let Some(window) = handle_for_shortcut.get_webview_window("search") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
+                            if let Err(error) =
+                                search_window(&handle_for_shortcut, SearchWindowMode::Toggle)
+                            {
+                                eprintln!("Failed to toggle search window: {error}");
                             }
                         }
                     })

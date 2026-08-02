@@ -1,4 +1,4 @@
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 use crate::api::lifecycle::ApiStatus;
 use crate::models::collection::{Collection, CreateCollectionRequest};
@@ -8,6 +8,7 @@ use crate::models::prompt::{
 };
 use crate::models::settings::KeyboardShortcut;
 use crate::models::tag::{CreateTagRequest, Tag};
+use crate::search_window::{search_window, Mode as SearchWindowMode};
 use crate::services::import_export::ImportResult;
 use crate::services::{
     collection_service, import_export, playbook_service, prompt_service, search_service,
@@ -509,13 +510,8 @@ pub fn update_keyboard_shortcut(
             app.global_shortcut()
                 .on_shortcut(binding.as_str(), move |_app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        if let Some(window) = handle.get_webview_window("search") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                        if let Err(error) = search_window(&handle, SearchWindowMode::Toggle) {
+                            eprintln!("Failed to toggle search window: {error}");
                         }
                     }
                 });
@@ -528,13 +524,10 @@ pub fn update_keyboard_shortcut(
                     old.as_str(),
                     move |_app, _shortcut, event| {
                         if event.state == ShortcutState::Pressed {
-                            if let Some(window) = rollback_handle.get_webview_window("search") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
+                            if let Err(error) =
+                                search_window(&rollback_handle, SearchWindowMode::Toggle)
+                            {
+                                eprintln!("Failed to toggle search window: {error}");
                             }
                         }
                     },
@@ -577,13 +570,8 @@ pub fn reset_keyboard_shortcuts(
         "CommandOrControl+Shift+P",
         move |_app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                if let Some(window) = handle.get_webview_window("search") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                if let Err(error) = search_window(&handle, SearchWindowMode::Toggle) {
+                    eprintln!("Failed to toggle search window: {error}");
                 }
             }
         },

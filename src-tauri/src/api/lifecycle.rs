@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -39,6 +40,7 @@ pub struct ApiLifecycle {
     discovery_path: PathBuf,
     running: Option<RunningApi>,
     last_bound_port: Option<u16>,
+    app_handle: Option<AppHandle>,
 }
 
 impl ApiLifecycle {
@@ -48,6 +50,7 @@ impl ApiLifecycle {
             discovery_path,
             running: None,
             last_bound_port: None,
+            app_handle: None,
         }
     }
 
@@ -64,6 +67,10 @@ impl ApiLifecycle {
 
     pub fn last_bound_port(&self) -> Option<u16> {
         self.last_bound_port
+    }
+
+    pub fn set_app_handle(&mut self, app_handle: AppHandle) {
+        self.app_handle = Some(app_handle);
     }
 
     pub async fn set_enabled(
@@ -146,6 +153,7 @@ impl ApiLifecycle {
             db: Mutex::new(api_connection),
             api_key: key.clone(),
             api_port: port,
+            app_handle: self.app_handle.clone(),
         });
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(server::start(listener, state, async move {

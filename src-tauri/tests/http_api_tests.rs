@@ -78,6 +78,7 @@ impl TestServer {
             db: Mutex::new(conn),
             api_key: key.clone(),
             api_port: port,
+            app_handle: None,
         });
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(server::start(listener, state.clone(), async move {

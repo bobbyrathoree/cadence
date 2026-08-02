@@ -1064,6 +1064,7 @@ fn test_api_auth_state_structure() {
         db: Mutex::new(conn),
         api_key: "test-key-12345".to_string(),
         api_port: 3210,
+        app_handle: None,
     };
 
     assert_eq!(state.api_key, "test-key-12345", "API key should be stored");

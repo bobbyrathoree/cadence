@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{extract::DefaultBodyLimit, middleware, Router};
 use rusqlite::Connection;
+use tauri::{AppHandle, Emitter};
 use tokio::net::TcpListener;
 
 use super::auth::auth_middleware;
@@ -16,6 +17,17 @@ pub struct ApiState {
     pub db: Mutex<Connection>,
     pub api_key: String,
     pub api_port: u16,
+    pub app_handle: Option<AppHandle>,
+}
+
+impl ApiState {
+    pub fn emit_db_changed(&self) {
+        if let Some(app) = &self.app_handle {
+            if let Err(error) = app.emit("db-changed", ()) {
+                eprintln!("Failed to emit db-changed after API mutation: {error}");
+            }
+        }
+    }
 }
 
 pub fn build_app(state: Arc<ApiState>) -> Router {

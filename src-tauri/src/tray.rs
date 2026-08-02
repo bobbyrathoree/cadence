@@ -5,6 +5,8 @@ use tauri::{
     AppHandle, Manager,
 };
 
+use cadence_lib::search_window::{search_window, Mode};
+
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(
         app,
@@ -31,9 +33,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .icon(icon)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "search" => {
-                if let Some(window) = app.get_webview_window("search") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let Err(error) = search_window(app, Mode::Show) {
+                    eprintln!("Failed to show search window: {error}");
                 }
             }
             "open" => {

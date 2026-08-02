@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api } from '../../lib/api';
 import { getPrimaryVariant } from '../../lib/prompt';
@@ -6,12 +6,25 @@ import type { PromptListItem, PromptWithVariants } from '../../lib/types';
 import { SearchResults } from './SearchResults';
 import { SearchPreview } from './SearchPreview';
 
-export function FloatingSearch() {
+interface Props {
+  revision: number;
+  shownRevision: number;
+}
+
+export function FloatingSearch({ revision, shownRevision }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PromptListItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedPrompt, setSelectedPrompt] = useState<PromptWithVariants | null>(null);
   const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (shownRevision > 0) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [shownRevision]);
 
   // Debounced search or load recents
   useEffect(() => {
@@ -34,7 +47,9 @@ export function FloatingSearch() {
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }
 
     setLoading(true);
@@ -59,7 +74,7 @@ export function FloatingSearch() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, revision]);
 
   // Load preview for selected result
   useEffect(() => {
@@ -80,8 +95,15 @@ export function FloatingSearch() {
         if (!cancelled) setSelectedPrompt(null);
       });
 
-    return () => { cancelled = true; };
-  }, [results, selectedIndex]);
+    return () => {
+      cancelled = true;
+    };
+  }, [results, selectedIndex, revision]);
+
+  const handleResultSelect = useCallback((index: number) => {
+    setSelectedIndex(index);
+    inputRef.current?.focus();
+  }, []);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
@@ -112,7 +134,11 @@ export function FloatingSearch() {
   );
 
   return (
-    <div className="flex flex-col h-full" onKeyDown={handleKeyDown}>
+    <div
+      className="flex flex-col h-full"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+    >
       {/* Search bar */}
       <div
         className="flex items-center gap-3 flex-shrink-0"
@@ -138,6 +164,7 @@ export function FloatingSearch() {
         </svg>
 
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -174,7 +201,7 @@ export function FloatingSearch() {
         <SearchResults
           results={results}
           selectedIndex={selectedIndex}
-          onSelect={setSelectedIndex}
+          onSelect={handleResultSelect}
           loading={loading}
         />
         <SearchPreview prompt={selectedPrompt} />
