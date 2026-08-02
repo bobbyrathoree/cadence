@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { eventToBinding, isModifierKey } from '../../lib/keys';
 
 interface Props {
   value: string;
@@ -26,28 +27,10 @@ function parseBinding(binding: string): string[] {
 
 /** Build a combo string from a keyboard event */
 function eventToCombo(e: KeyboardEvent): { combo: string; hasNonModifier: boolean } {
-  const parts: string[] = [];
-  if (e.metaKey || e.ctrlKey) parts.push('CommandOrControl');
-  if (e.shiftKey) parts.push('Shift');
-  if (e.altKey) parts.push('Alt');
-
-  const key = e.key;
-  const isModifier = ['Meta', 'Control', 'Shift', 'Alt'].includes(key);
-
-  if (!isModifier) {
-    const normalized =
-      key === ',' ? 'Comma' :
-      key === '.' ? 'Period' :
-      key === ' ' ? 'Space' :
-      key === 'ArrowUp' ? 'Up' :
-      key === 'ArrowDown' ? 'Down' :
-      key === 'ArrowLeft' ? 'Left' :
-      key === 'ArrowRight' ? 'Right' :
-      key.length === 1 ? key.toUpperCase() : key;
-    parts.push(normalized);
-  }
-
-  return { combo: parts.join('+'), hasNonModifier: !isModifier };
+  return {
+    combo: eventToBinding(e),
+    hasNonModifier: !isModifierKey(e.key),
+  };
 }
 
 export function ShortcutRecorder({ value, onChange, onClear, existingBindings, currentAction }: Props) {

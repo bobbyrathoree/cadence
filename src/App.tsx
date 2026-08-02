@@ -4,36 +4,14 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppProvider, useAppContext } from './lib/context';
 import { api } from './lib/api';
 import { usePrompts, useKeyboardShortcuts } from './lib/hooks';
+import { eventToBinding } from './lib/keys';
+import { getPrimaryVariant } from './lib/prompt';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { PromptList } from './components/prompt-list/PromptList';
 import { DetailPanel } from './components/detail/DetailPanel';
 import { Toast } from './components/shared/Toast';
 import { ImportModal } from './components/import/ImportModal';
 import { SettingsModal } from './components/settings/SettingsModal';
-
-function eventToBinding(e: KeyboardEvent): string {
-  const parts: string[] = [];
-  if (e.metaKey || e.ctrlKey) parts.push('CommandOrControl');
-  if (e.shiftKey) parts.push('Shift');
-  if (e.altKey) parts.push('Alt');
-
-  const key = e.key;
-  // Skip if only modifier pressed
-  if (['Meta', 'Control', 'Shift', 'Alt'].includes(key)) return parts.join('+');
-
-  // Normalize key names
-  const normalized =
-    key === ',' ? 'Comma' :
-    key === '.' ? 'Period' :
-    key === ' ' ? 'Space' :
-    key === 'ArrowUp' ? 'Up' :
-    key === 'ArrowDown' ? 'Down' :
-    key === 'ArrowLeft' ? 'Left' :
-    key === 'ArrowRight' ? 'Right' :
-    key.length === 1 ? key.toUpperCase() : key;
-  parts.push(normalized);
-  return parts.join('+');
-}
 
 function AppContent() {
   const {
@@ -136,9 +114,7 @@ function AppContent() {
           api.prompts
             .get(selectedPromptId)
             .then(async (prompt) => {
-              const primaryVariant = prompt.variants.find(
-                (v) => v.id === prompt.primary_variant_id,
-              ) ?? prompt.variants[0];
+              const primaryVariant = getPrimaryVariant(prompt);
 
               if (primaryVariant) {
                 await writeText(primaryVariant.content);

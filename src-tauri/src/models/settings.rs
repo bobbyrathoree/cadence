@@ -26,8 +26,8 @@ pub const SHORTCUT_ACTIONS: &[(&str, &str, &str, bool)] = &[
     ("open_import", "CommandOrControl+I", "Open Import", false),
     ("copy_selected", "Enter", "Copy Selected Prompt", false),
     ("deselect", "Escape", "Deselect", false),
-    ("navigate_up", "ArrowUp", "Navigate Up", false),
-    ("navigate_down", "ArrowDown", "Navigate Down", false),
+    ("navigate_up", "Up", "Navigate Up", false),
+    ("navigate_down", "Down", "Navigate Down", false),
     (
         "open_settings",
         "CommandOrControl+Comma",

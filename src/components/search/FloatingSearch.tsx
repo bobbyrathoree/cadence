@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api } from '../../lib/api';
+import { getPrimaryVariant } from '../../lib/prompt';
 import type { PromptListItem, PromptWithVariants } from '../../lib/types';
 import { SearchResults } from './SearchResults';
 import { SearchPreview } from './SearchPreview';
@@ -96,7 +97,7 @@ export function FloatingSearch() {
         const item = results[selectedIndex];
         // Copy to clipboard and hide
         api.prompts.get(item.id).then((prompt) => {
-          const variant = prompt.variants[0];
+          const variant = getPrimaryVariant(prompt);
           if (variant) {
             writeText(variant.content).catch(console.error);
             api.prompts.recordCopy(prompt.id, variant.id).catch(console.error);

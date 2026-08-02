@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { getPrimaryVariant } from '../../lib/prompt';
 import type { PromptWithVariants } from '../../lib/types';
 
 interface Props {
@@ -50,7 +51,7 @@ function highlightVariables(content: string): React.ReactNode[] {
 }
 
 export function SearchPreview({ prompt }: Props) {
-  const variant = prompt?.variants[0] ?? null;
+  const variant = prompt ? getPrimaryVariant(prompt) ?? null : null;
 
   const highlightedContent = useMemo(() => {
     if (!variant) return [];
