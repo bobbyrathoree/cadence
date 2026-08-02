@@ -144,6 +144,7 @@ export function Sidebar() {
     setActiveCollectionId,
     activePlaybookId,
     setActivePlaybookId,
+    requestEditExit,
     refreshCounter,
     setIsImportOpen,
     setIsSettingsOpen,
@@ -165,21 +166,27 @@ export function Sidebar() {
   const regularCollections = collections.filter((c) => !c.is_smart);
 
   function handleViewClick(view: ActiveView) {
-    setActiveView(view);
-    setActiveCollectionId(null);
-    setActivePlaybookId(null);
+    requestEditExit(() => {
+      setActiveView(view);
+      setActiveCollectionId(null);
+      setActivePlaybookId(null);
+    });
   }
 
   function handleCollectionClick(id: string) {
-    setActiveView('collection');
-    setActiveCollectionId(id);
-    setActivePlaybookId(null);
+    requestEditExit(() => {
+      setActiveView('collection');
+      setActiveCollectionId(id);
+      setActivePlaybookId(null);
+    });
   }
 
   function handlePlaybookClick(id: string) {
-    setActiveView('playbook');
-    setActivePlaybookId(id);
-    setActiveCollectionId(null);
+    requestEditExit(() => {
+      setActiveView('playbook');
+      setActivePlaybookId(id);
+      setActiveCollectionId(null);
+    });
   }
 
   return (

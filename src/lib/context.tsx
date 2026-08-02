@@ -1,4 +1,14 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+} from 'react';
+import {
+  PROMPT_EDIT_EXIT_EVENT,
+  type PromptEditExitDetail,
+} from './promptDrafts';
 
 export type ActiveView = 'all' | 'favorites' | 'recents' | 'collection' | 'playbook';
 
@@ -28,6 +38,7 @@ export interface AppContextType {
   setIsCreating: (v: boolean) => void;
   isEditing: boolean;
   setIsEditing: (v: boolean) => void;
+  requestEditExit: (afterExit?: () => void) => void;
 
   // Import modal
   isImportOpen: boolean;
@@ -56,33 +67,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRefreshCounter((c) => c + 1);
   }, []);
 
+  const requestEditExit = useCallback(
+    (afterExit: () => void = () => undefined) => {
+      if (!isEditing) {
+        afterExit();
+        return;
+      }
+      window.dispatchEvent(
+        new CustomEvent<PromptEditExitDetail>(PROMPT_EDIT_EXIT_EVENT, {
+          detail: { afterExit },
+        }),
+      );
+    },
+    [isEditing],
+  );
+
+  const value = useMemo<AppContextType>(
+    () => ({
+      activeView,
+      setActiveView,
+      activeCollectionId,
+      setActiveCollectionId,
+      activePlaybookId,
+      setActivePlaybookId,
+      selectedPromptId,
+      setSelectedPromptId,
+      searchQuery,
+      setSearchQuery,
+      refreshCounter,
+      triggerRefresh,
+      isCreating,
+      setIsCreating,
+      isEditing,
+      setIsEditing,
+      requestEditExit,
+      isImportOpen,
+      setIsImportOpen,
+      isSettingsOpen,
+      setIsSettingsOpen,
+    }),
+    [
+      activeView,
+      activeCollectionId,
+      activePlaybookId,
+      selectedPromptId,
+      searchQuery,
+      refreshCounter,
+      triggerRefresh,
+      isCreating,
+      isEditing,
+      requestEditExit,
+      isImportOpen,
+      isSettingsOpen,
+    ],
+  );
+
   return (
-    <AppContext.Provider
-      value={{
-        activeView,
-        setActiveView,
-        activeCollectionId,
-        setActiveCollectionId,
-        activePlaybookId,
-        setActivePlaybookId,
-        selectedPromptId,
-        setSelectedPromptId,
-        searchQuery,
-        setSearchQuery,
-        refreshCounter,
-        triggerRefresh,
-        isCreating,
-        setIsCreating,
-        isEditing,
-        setIsEditing,
-        isImportOpen,
-        setIsImportOpen,
-        isSettingsOpen,
-        setIsSettingsOpen,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+    <AppContext.Provider value={value}>{children}</AppContext.Provider>
   );
 }
 

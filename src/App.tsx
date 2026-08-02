@@ -25,6 +25,7 @@ function AppContent() {
     setIsCreating,
     isEditing,
     setIsEditing,
+    requestEditExit,
     isImportOpen,
     setIsImportOpen,
     isSettingsOpen,
@@ -79,8 +80,7 @@ function AppContent() {
           break;
         }
         case 'new_prompt': {
-          setIsEditing(false);
-          setIsCreating(true);
+          requestEditExit(() => setIsCreating(true));
           break;
         }
         case 'toggle_favorite': {
@@ -97,7 +97,11 @@ function AppContent() {
         }
         case 'toggle_edit': {
           if (selectedPromptId && !isCreating) {
-            setIsEditing(!isEditing);
+            if (isEditing) {
+              requestEditExit();
+            } else {
+              setIsEditing(true);
+            }
           }
           break;
         }
@@ -127,7 +131,7 @@ function AppContent() {
           break;
         }
         case 'deselect': {
-          setSelectedPromptId(null);
+          requestEditExit(() => setSelectedPromptId(null));
           break;
         }
         case 'navigate_up': {
@@ -136,7 +140,10 @@ function AppContent() {
             (p) => p.id === selectedPromptId,
           );
           const nextIndex = currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0);
-          setSelectedPromptId(prompts[nextIndex].id);
+          const nextId = prompts[nextIndex].id;
+          if (nextId !== selectedPromptId) {
+            requestEditExit(() => setSelectedPromptId(nextId));
+          }
           break;
         }
         case 'navigate_down': {
@@ -145,7 +152,10 @@ function AppContent() {
             (p) => p.id === selectedPromptId,
           );
           const nextIdx = currentIdx < 0 ? 0 : Math.min(currentIdx + 1, prompts.length - 1);
-          setSelectedPromptId(prompts[nextIdx].id);
+          const nextId = prompts[nextIdx].id;
+          if (nextId !== selectedPromptId) {
+            requestEditExit(() => setSelectedPromptId(nextId));
+          }
           break;
         }
       }
@@ -153,7 +163,7 @@ function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPromptId, prompts, shortcutMap, setSelectedPromptId, showToast, triggerRefresh, isCreating, setIsCreating, isEditing, setIsEditing, setIsImportOpen, setIsSettingsOpen]);
+  }, [selectedPromptId, prompts, shortcutMap, setSelectedPromptId, showToast, triggerRefresh, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen]);
 
   // Listen for cross-window "db-changed" events from Tauri
   useEffect(() => {

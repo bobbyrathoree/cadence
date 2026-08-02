@@ -12,7 +12,7 @@ export function PromptList() {
     selectedPromptId,
     setSelectedPromptId,
     setIsCreating,
-    setIsEditing,
+    requestEditExit,
   } = useAppContext();
 
   const { prompts, loading: promptsLoading } = usePrompts(
@@ -121,7 +121,11 @@ export function PromptList() {
               key={item.id}
               item={item}
               isSelected={selectedPromptId === item.id}
-              onClick={() => setSelectedPromptId(item.id)}
+              onClick={() => {
+                if (item.id !== selectedPromptId) {
+                  requestEditExit(() => setSelectedPromptId(item.id));
+                }
+              }}
             />
           ))
         )}
@@ -162,8 +166,7 @@ export function PromptList() {
           }}
           title="New Prompt"
           onClick={() => {
-            setIsEditing(false);
-            setIsCreating(true);
+            requestEditExit(() => setIsCreating(true));
           }}
         >
           +

@@ -1,7 +1,24 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  useReducer,
+} from 'react';
 import { usePromptDetail } from '../../lib/hooks';
 import { useAppContext } from '../../lib/context';
 import { api } from '../../lib/api';
+import { getPrimaryVariant } from '../../lib/prompt';
+import {
+  createPromptDraftState,
+  describeDirtyDrafts,
+  hasDirtyDrafts,
+  PROMPT_EDIT_EXIT_EVENT,
+  type PromptEditExitDetail,
+  promptDraftReducer,
+  savePromptDrafts,
+} from '../../lib/promptDrafts';
 import { VariantSelector } from './VariantSelector';
 import { TagPills } from './TagPills';
 import { CopyButton } from '../shared/CopyButton';
@@ -85,71 +102,139 @@ export function PromptDetail({ promptId }: Props) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
   // Edit-mode draft state
-  const [editTitle, setEditTitle] = useState('');
-  const [editContent, setEditContent] = useState('');
+  const [drafts, dispatchDraft] = useReducer(
+    promptDraftReducer,
+    undefined,
+    createPromptDraftState,
+  );
   const [saving, setSaving] = useState(false);
+  const [saveErrors, setSaveErrors] = useState<string[]>([]);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const selectedPromptRef = useRef<string | null>(null);
+  const pendingExitActionRef = useRef<(() => void) | null>(null);
 
-  // Reset selected variant when prompt changes
+  // Reset selection only when the prompt ID changes, not on background refetches.
   useEffect(() => {
-    if (prompt) {
-      setSelectedVariantId(prompt.primary_variant_id ?? prompt.variants[0]?.id ?? null);
+    if (prompt?.id === promptId && selectedPromptRef.current !== promptId) {
+      selectedPromptRef.current = promptId;
+      setSelectedVariantId(getPrimaryVariant(prompt)?.id ?? null);
+      dispatchDraft({ type: 'reset' });
+      setSaveErrors([]);
+      setShowExitConfirm(false);
+      pendingExitActionRef.current = null;
     }
-  }, [prompt]);
-
-  // Exit edit mode when prompt changes
-  useEffect(() => {
-    setIsEditing(false);
-  }, [promptId, setIsEditing]);
+  }, [promptId, prompt]);
 
   const selectedVariant = useMemo(() => {
     if (!prompt || !selectedVariantId) return null;
     return prompt.variants.find((v) => v.id === selectedVariantId) ?? prompt.variants[0] ?? null;
   }, [prompt, selectedVariantId]);
 
-  // Populate draft when entering edit mode
+  // Seed only missing draft records. Same-prompt refetches preserve existing drafts.
   useEffect(() => {
-    if (isEditing && prompt && selectedVariant) {
-      setEditTitle(prompt.title);
-      setEditContent(selectedVariant.content);
-      // Focus the title input after a tick
+    if (isEditing && prompt?.id === promptId && selectedVariant) {
+      dispatchDraft({
+        type: 'seed',
+        prompt,
+        activeVariantId: selectedVariant.id,
+      });
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
-  }, [isEditing, prompt, selectedVariant]);
+  }, [isEditing, promptId, prompt, selectedVariant]);
 
   const highlightedContent = useMemo(() => {
     if (!selectedVariant) return [];
     return highlightVariables(selectedVariant.content);
   }, [selectedVariant]);
 
-  const handleSave = useCallback(async () => {
-    if (!prompt || !selectedVariant) return;
-    const trimmedTitle = editTitle.trim();
-    const trimmedContent = editContent.trim();
-    if (!trimmedTitle || !trimmedContent) return;
+  const activeVariantDraft = selectedVariantId
+    ? drafts.variants.get(selectedVariantId) ?? null
+    : null;
+  const dirty = hasDirtyDrafts(drafts);
+  const draftsAreValid = Boolean(
+    drafts.metadata?.title.trim() &&
+      [...drafts.variants.values()].every(
+        (draft) => draft.label.trim() && draft.content.trim(),
+      ),
+  );
+
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    if (!prompt || !draftsAreValid) return false;
 
     setSaving(true);
+    setSaveErrors([]);
     try {
-      // Update prompt title if changed
-      if (trimmedTitle !== prompt.title) {
-        await api.prompts.update(prompt.id, { title: trimmedTitle });
+      const result = await savePromptDrafts(drafts, {
+        updatePrompt: (id, request) => api.prompts.update(id, request),
+        updateVariant: (id, content, label) => api.variants.update(id, content, label),
+      });
+      dispatchDraft({
+        type: 'mark_saved',
+        metadata: result.savedMetadata,
+        variantIds: result.savedVariantIds,
+      });
+
+      if (result.failures.length > 0) {
+        setSaveErrors(
+          result.failures.map(
+            (failure) => `Failed to save ${failure.label}: ${String(failure.error)}`,
+          ),
+        );
+        return false;
       }
-      // Update variant content if changed
-      if (trimmedContent !== selectedVariant.content) {
-        await api.variants.update(selectedVariant.id, trimmedContent, selectedVariant.label);
-      }
+
       triggerRefresh();
+      dispatchDraft({ type: 'reset' });
+      setShowExitConfirm(false);
       setIsEditing(false);
-    } catch (err) {
-      console.error('Failed to save prompt:', err);
+      pendingExitActionRef.current?.();
+      pendingExitActionRef.current = null;
+      return true;
     } finally {
       setSaving(false);
     }
-  }, [prompt, selectedVariant, editTitle, editContent, triggerRefresh, setIsEditing]);
+  }, [prompt, drafts, draftsAreValid, triggerRefresh, setIsEditing]);
 
-  const handleCancel = useCallback(() => {
+  const discardAndExit = useCallback(() => {
+    dispatchDraft({ type: 'reset' });
+    setSaveErrors([]);
+    setShowExitConfirm(false);
     setIsEditing(false);
+    pendingExitActionRef.current?.();
+    pendingExitActionRef.current = null;
   }, [setIsEditing]);
+
+  const requestExit = useCallback((afterExit?: () => void) => {
+    pendingExitActionRef.current = afterExit ?? null;
+    if (dirty) {
+      setShowExitConfirm(true);
+    } else {
+      discardAndExit();
+    }
+  }, [dirty, discardAndExit]);
+
+  const handleVariantSelect = useCallback(
+    (variantId: string) => {
+      setSelectedVariantId(variantId);
+      if (isEditing && prompt) {
+        dispatchDraft({
+          type: 'seed',
+          prompt,
+          activeVariantId: variantId,
+        });
+      }
+    },
+    [isEditing, prompt],
+  );
+
+  useEffect(() => {
+    function handleExitRequest(event: Event) {
+      requestExit((event as CustomEvent<PromptEditExitDetail>).detail.afterExit);
+    }
+    window.addEventListener(PROMPT_EDIT_EXIT_EVENT, handleExitRequest);
+    return () => window.removeEventListener(PROMPT_EDIT_EXIT_EVENT, handleExitRequest);
+  }, [requestExit]);
 
   // Cmd+S to save, Escape to cancel (only when editing)
   useEffect(() => {
@@ -166,14 +251,14 @@ export function PromptDetail({ promptId }: Props) {
 
       if (e.key === 'Escape') {
         e.preventDefault();
-        handleCancel();
+        requestExit();
         return;
       }
     }
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isEditing, handleSave, handleCancel]);
+  }, [isEditing, handleSave, requestExit]);
 
   if (loading) {
     return (
@@ -198,7 +283,7 @@ export function PromptDetail({ promptId }: Props) {
   }
 
   const charCount = isEditing
-    ? editContent.length
+    ? activeVariantDraft?.content.length ?? selectedVariant?.content.length ?? 0
     : selectedVariant?.content.length ?? 0;
 
   return (
@@ -218,8 +303,10 @@ export function PromptDetail({ promptId }: Props) {
             <input
               ref={titleInputRef}
               type="text"
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
+              value={drafts.metadata?.title ?? prompt.title}
+              onChange={(e) =>
+                dispatchDraft({ type: 'edit_metadata', title: e.target.value })
+              }
               className="flex-1 min-w-0"
               style={{
                 fontSize: '16px',
@@ -250,7 +337,7 @@ export function PromptDetail({ promptId }: Props) {
           {isEditing ? (
             <>
               <button
-                onClick={handleCancel}
+                onClick={() => requestExit()}
                 className="flex items-center justify-center rounded cursor-default"
                 style={{
                   padding: '6px 12px',
@@ -276,7 +363,7 @@ export function PromptDetail({ promptId }: Props) {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !editTitle.trim() || !editContent.trim()}
+                disabled={saving || !draftsAreValid}
                 className="flex items-center gap-1.5 rounded cursor-default outline-none"
                 style={{
                   padding: '6px 16px',
@@ -284,7 +371,7 @@ export function PromptDetail({ promptId }: Props) {
                   fontWeight: 500,
                   border: 'none',
                   background:
-                    saving || !editTitle.trim() || !editContent.trim()
+                    saving || !draftsAreValid
                       ? 'color-mix(in srgb, var(--accent) 40%, transparent)'
                       : 'var(--accent)',
                   color: '#ffffff',
@@ -342,6 +429,48 @@ export function PromptDetail({ promptId }: Props) {
           )}
         </div>
 
+        {isEditing && (
+          <input
+            type="text"
+            aria-label="Prompt description"
+            value={drafts.metadata?.description ?? prompt.description ?? ''}
+            onChange={(event) =>
+              dispatchDraft({
+                type: 'edit_metadata',
+                description: event.target.value,
+              })
+            }
+            placeholder="Description"
+            style={{
+              width: '100%',
+              marginTop: 10,
+              padding: '4px 0',
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '1px solid var(--border)',
+              outline: 'none',
+            }}
+          />
+        )}
+
+        {saveErrors.length > 0 && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 10,
+              fontSize: '11px',
+              lineHeight: 1.5,
+              color: '#ff453a',
+            }}
+          >
+            {saveErrors.map((error) => (
+              <div key={error}>{error}</div>
+            ))}
+          </div>
+        )}
+
         {/* Tags and copy stats (visible in view mode only) */}
         {!isEditing && (
           <div className="flex items-center gap-3 mt-2 flex-wrap">
@@ -366,30 +495,64 @@ export function PromptDetail({ promptId }: Props) {
       <VariantSelector
         variants={prompt.variants}
         selectedId={selectedVariantId ?? ''}
-        onSelect={setSelectedVariantId}
+        onSelect={handleVariantSelect}
       />
 
       {/* Content area */}
       <div className="flex-1 overflow-y-auto" style={{ padding: '20px' }}>
         {isEditing ? (
-          <textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            style={{
-              width: '100%',
-              height: '100%',
-              fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
-              fontSize: '12px',
-              lineHeight: 1.7,
-              color: 'var(--text-primary)',
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              resize: 'none',
-              padding: 0,
-              margin: 0,
-            }}
-          />
+          <div className="flex flex-col h-full gap-3">
+            <input
+              type="text"
+              aria-label="Variant label"
+              value={activeVariantDraft?.label ?? selectedVariant?.label ?? ''}
+              onChange={(event) => {
+                if (!selectedVariantId) return;
+                dispatchDraft({
+                  type: 'edit_variant',
+                  variantId: selectedVariantId,
+                  label: event.target.value,
+                });
+              }}
+              style={{
+                width: '100%',
+                padding: '5px 0',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid var(--border)',
+                outline: 'none',
+              }}
+            />
+            <textarea
+              aria-label="Variant content"
+              value={activeVariantDraft?.content ?? selectedVariant?.content ?? ''}
+              onChange={(event) => {
+                if (!selectedVariantId) return;
+                dispatchDraft({
+                  type: 'edit_variant',
+                  variantId: selectedVariantId,
+                  content: event.target.value,
+                });
+              }}
+              style={{
+                width: '100%',
+                flex: 1,
+                fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
+                fontSize: '12px',
+                lineHeight: 1.7,
+                color: 'var(--text-primary)',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                resize: 'none',
+                padding: 0,
+                margin: 0,
+              }}
+            />
+          </div>
         ) : (
           <pre
             style={{
@@ -421,9 +584,100 @@ export function PromptDetail({ promptId }: Props) {
         <span>Modified {formatDate(prompt.updated_at)}</span>
         <span>{charCount.toLocaleString()} characters</span>
         {isEditing && (
-          <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Editing</span>
+          <span style={{ color: 'var(--accent)', fontWeight: 500 }}>
+            {dirty ? 'Unsaved changes' : 'Editing'}
+          </span>
         )}
       </div>
+
+      {showExitConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-edits-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0, 0, 0, 0.45)',
+          }}
+        >
+          <div
+            style={{
+              width: 420,
+              maxWidth: 'calc(100vw - 32px)',
+              padding: 20,
+              borderRadius: 8,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.35)',
+            }}
+          >
+            <h3
+              id="unsaved-edits-title"
+              style={{ margin: 0, fontSize: '15px', color: 'var(--text-primary)' }}
+            >
+              Unsaved edits
+            </h3>
+            <p
+              style={{
+                margin: '8px 0 18px',
+                fontSize: '12px',
+                lineHeight: 1.5,
+                color: 'var(--text-secondary)',
+              }}
+            >
+              {describeDirtyDrafts(drafts)}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  pendingExitActionRef.current = null;
+                  setShowExitConfirm(false);
+                }}
+                style={confirmSecondaryButtonStyle}
+              >
+                Cancel
+              </button>
+              <button onClick={discardAndExit} style={confirmSecondaryButtonStyle}>
+                Discard
+              </button>
+              <button
+                onClick={() => void handleSave()}
+                disabled={saving || !draftsAreValid}
+                style={{
+                  ...confirmPrimaryButtonStyle,
+                  opacity: saving || !draftsAreValid ? 0.5 : 1,
+                }}
+              >
+                {saving ? 'Saving...' : 'Save All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const confirmSecondaryButtonStyle: React.CSSProperties = {
+  padding: '7px 14px',
+  fontSize: '12px',
+  borderRadius: 6,
+  border: '1px solid var(--border)',
+  background: 'transparent',
+  color: 'var(--text-secondary)',
+};
+
+const confirmPrimaryButtonStyle: React.CSSProperties = {
+  padding: '7px 14px',
+  fontSize: '12px',
+  fontWeight: 600,
+  borderRadius: 6,
+  border: 'none',
+  background: 'var(--accent)',
+  color: '#ffffff',
+};
