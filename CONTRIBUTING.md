@@ -6,9 +6,9 @@ Thanks for your interest in contributing to Cadence. This document covers the ba
 
 ### Prerequisites
 
-- macOS (Cadence is a macOS-only app)
+- Apple Silicon Mac running macOS 12.0 or later
 - [Rust](https://rustup.rs/) (stable)
-- [Node.js](https://nodejs.org/) v18+
+- [Node.js](https://nodejs.org/) `^20.19.0 || >=22.12.0`
 - npm
 
 ### Getting Started
@@ -16,11 +16,13 @@ Thanks for your interest in contributing to Cadence. This document covers the ba
 ```bash
 git clone https://github.com/bobbyrathoree/cadence.git
 cd cadence
-npm install
+npm ci
 npm run tauri dev
 ```
 
 This starts the Vite dev server and the Tauri app with hot reload. Rust changes trigger a recompile; React changes hot-reload instantly.
+
+Use `npm run tauri dev` for functional testing. `npm run dev` serves the React frontend in a browser, where Tauri IPC, event, clipboard, and native-window APIs are unavailable; data-backed workflows will fail or remain empty there.
 
 ### Project Structure
 
@@ -45,6 +47,21 @@ npm run tauri build
 
 Produces `Cadence.app` in `src-tauri/target/release/bundle/macos/`.
 
+### Verify
+
+Run the same checks used by CI:
+
+```bash
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+npx tsc --noEmit
+npm run build
+npx vitest run
+npx playwright test
+scripts/check-versions.sh
+```
+
 ## How to Contribute
 
 ### Reporting Bugs
@@ -61,11 +78,12 @@ Open an issue describing the feature and why it would be useful. For larger feat
 
 ### Submitting Changes
 
-1. Fork the repo and create a branch from `main`
+1. Fork the repo and create a branch from `master`
 2. Make your changes
 3. Ensure both Rust and TypeScript compile cleanly:
    ```bash
-   cargo build --manifest-path src-tauri/Cargo.toml
+   cargo test --manifest-path src-tauri/Cargo.toml
+   npx tsc --noEmit
    npm run build
    ```
 4. Open a pull request with a clear description of what you changed and why

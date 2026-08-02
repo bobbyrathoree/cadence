@@ -9,7 +9,7 @@
 <p align="center">
   Store, organize, search, and instantly copy AI prompts.<br/>
   Chain them into step-by-step Playbooks.<br/>
-  Access everything from the menu bar.
+  Open Cadence or floating search from the menu bar.
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@ Cadence fixes this. It's a native macOS app built specifically for managing AI p
   <img src="assets/screenshots/floating-search.png" alt="Floating Search" width="100%" />
 </p>
 
-**Menu Bar** — Your most recent and favorite prompts, one click away. No window needed.
+**Menu Bar** — Open Cadence, show floating search, or quit the app.
 
 ### Playbooks: Sequenced Prompt Workflows
 
@@ -65,17 +65,18 @@ Chain prompts in the right order. Add operator notes. Branch with choice steps.
 ### Organization
 
 - **Tags** with namespace convention (`model:claude`, `type:system`, `role:primer`)
-- **Smart Collections** — saved filters that update automatically ("All Claude prompts tagged #coding")
-- **Manual Collections** — drag-and-drop curation
+- **Manual Collections** — group related prompts into curated lists
 - **Favorites & Recents** — quick access to what you use most
 
 ### Prompt Variants
 
 One prompt, multiple versions. "With Gemini" and "Solo" variants live side by side. Switch with a segmented toggle — no duplicating prompts.
 
-### Full API
+### Opt-in Local API
 
-Cadence runs a local REST API so your scripts and AI agents can read and write prompts programmatically.
+Cadence includes a local REST API for scripts and AI agents. It is disabled by default on new and upgraded installs. Enable **Local API** in Settings when you need it.
+
+When enabled, the server binds only to `127.0.0.1` on a dynamic port. Cadence writes the port and a per-launch bearer token to `~/Library/Application Support/Cadence/api.json` with owner-only permissions. Disable the API when an integration no longer needs it.
 
 ```bash
 # Create a prompt from a script
@@ -89,14 +90,13 @@ curl "http://localhost:$PORT/api/v1/search?q=code+review" \
   -H "Authorization: Bearer $KEY"
 ```
 
-API credentials are at `~/Library/Application Support/Cadence/api.json`.
+The API trusts the local macOS user account: another process running as you may be able to read the discovery file and use the API. Bearer authentication, exact Host validation, and no CORS access reduce browser-based attacks; they do not protect against untrusted software already running under your account.
 
 ### Import & Export
 
-- **JSON** — Full-fidelity import/export with variants, tags, and collections
-- **Markdown** — Import prompts from `.md` files with YAML frontmatter
+- **JSON** — Import and export prompt titles, descriptions, primary content, favorite state, tags, and additional variant labels/content
+- **Markdown** — Import one or more `.md` files with optional YAML frontmatter
 - **Prompt Slicer** — Paste a messy ChatGPT conversation, select text blocks, and create prompts from them
-- **Bulk folder import** — Point at a directory of markdown files
 
 ### Keyboard-First
 
@@ -104,30 +104,48 @@ API credentials are at `~/Library/Application Support/Cadence/api.json`.
 |----------|--------|
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | Open floating search |
 | <kbd>Enter</kbd> | Copy selected prompt |
-| <kbd>Cmd</kbd>+<kbd>Enter</kbd> | Copy + paste to frontmost app |
 | <kbd>Cmd</kbd>+<kbd>N</kbd> | New prompt |
 | <kbd>Cmd</kbd>+<kbd>E</kbd> | Edit prompt |
 | <kbd>Cmd</kbd>+<kbd>D</kbd> | Toggle favorite |
 | <kbd>Cmd</kbd>+<kbd>F</kbd> | Focus search |
 | <kbd>Cmd</kbd>+<kbd>I</kbd> | Open import modal |
-| <kbd>Tab</kbd> | Cycle variants |
+| <kbd>Cmd</kbd>+<kbd>,</kbd> | Open Settings |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Navigate prompt list |
 | <kbd>Esc</kbd> | Dismiss / deselect |
 
 ### Starter Kit
 
-Cadence ships with a curated set of 6 prompts and a sample Playbook out of the box — so the app feels alive on first launch and you can see how tags, variants, and Playbooks work with real content. Everything in the starter kit is tagged `starter-kit` so you can delete it all in one go when you're ready to go fully custom.
+Cadence ships with a curated set of 6 prompts and a sample Playbook, so you can see tags, variants, and Playbooks working with real content on first launch. Starter prompts are tagged `starter-kit` for easy identification.
 
 ## Installation
 
+**Apple Silicon (M1+) required.** Cadence supports macOS 12.0 or later.
+
+### Unsigned Release Build
+
+Cadence v1.1 release builds are unsigned. Only install artifacts downloaded from the official GitHub Releases page.
+
+1. Download and open `Cadence_*.dmg`.
+2. Drag `Cadence.app` into **Applications**, then eject the disk image.
+3. In Finder, open **Applications**, Control-click `Cadence`, and choose **Open**.
+4. In the Gatekeeper dialog, click **Open**.
+
+If macOS does not offer **Open** in that dialog:
+
+1. Try to open Cadence once, then open **System Settings > Privacy & Security**.
+2. Scroll to **Security** and click **Open Anyway** next to the Cadence warning.
+3. Authenticate if prompted, then click **Open** in the confirmation dialog.
+
+These Gatekeeper steps are required only for the current unsigned build.
+
 ### From Source
 
-Prerequisites: [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) (v18+)
+Prerequisites: [Rust](https://rustup.rs/) stable and [Node.js](https://nodejs.org/) `^20.19.0 || >=22.12.0`.
 
 ```bash
 git clone https://github.com/bobbyrathoree/cadence.git
 cd cadence
-npm install
+npm ci
 npm run tauri build
 ```
 
@@ -139,7 +157,7 @@ The built app will be at `src-tauri/target/release/bundle/macos/Cadence.app`.
 npm run tauri dev
 ```
 
-This starts both the Vite dev server and the Tauri app with hot reload.
+This starts both the Vite dev server and the Tauri app with hot reload. Running `npm run dev` alone opens only the browser frontend; Tauri IPC, native clipboard access, and other native workflows are unavailable there.
 
 ## Architecture
 
@@ -166,10 +184,12 @@ Clients:
 
 **Key decisions:**
 - **Local-first** — everything runs on your machine, no cloud dependency
-- **SQLite + WAL mode** — fast reads, safe concurrent access from UI and API
-- **FTS5 full-text search** — sub-10ms search across thousands of prompts
-- **Separate API server** — runs on a background thread, agents can use it even when the window is minimized
+- **SQLite + WAL mode** — coordinates the UI and opt-in API database connections
+- **FTS5 full-text search** — prefix search across prompt metadata, content, and tags
+- **Separate API server** — runs on a background task only while the local API is enabled
 - **Soft deletes** — sync-ready architecture for future cloud backup
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the v1.1 data and service contracts.
 
 ### Tech Stack
 
@@ -181,37 +201,39 @@ Clients:
 | Storage | SQLite with FTS5 |
 | Search | FTS5 with prefix matching |
 
-## API Reference
+## Opt-in API Reference
 
-The API runs on `localhost` with a dynamic port. Credentials are stored in:
+Enable **Local API** in Settings. While enabled, the API runs on `127.0.0.1` with a dynamic port and publishes credentials at:
 
 ```
 ~/Library/Application Support/Cadence/api.json
 ```
 
 ```json
-{"port": 52341, "key": "cad_..."}
+{"port": 52341, "key": "..."}
 ```
 
-### Endpoints
+The token changes whenever the server starts. Disabling the API stops the listener and removes `api.json`.
+
+### Selected Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/health` | Health check (no auth) |
-| `GET` | `/api/v1/prompts` | List all prompts |
+| `GET` | `/api/v1/prompts` | List prompts |
 | `POST` | `/api/v1/prompts` | Create a prompt |
-| `GET` | `/api/v1/prompts/:id` | Get prompt with variants |
-| `PUT` | `/api/v1/prompts/:id` | Update prompt |
-| `DELETE` | `/api/v1/prompts/:id` | Soft delete |
-| `POST` | `/api/v1/prompts/:id/variants` | Add variant |
+| `GET` | `/api/v1/prompts/{id}` | Get prompt with variants |
+| `PUT` | `/api/v1/prompts/{id}` | Update prompt |
+| `DELETE` | `/api/v1/prompts/{id}` | Soft delete |
+| `POST` | `/api/v1/prompts/{id}/variants` | Add variant |
 | `GET` | `/api/v1/tags` | List all tags |
 | `POST` | `/api/v1/tags` | Create tag |
 | `GET` | `/api/v1/collections` | List collections |
 | `GET` | `/api/v1/search?q=...` | Full-text search |
-| `POST` | `/api/v1/prompts/:id/copy` | Record copy + get content |
+| `POST` | `/api/v1/prompts/{id}/copy` | Record copy + get content |
 | `GET` | `/api/v1/playbooks` | List playbooks |
 | `POST` | `/api/v1/import` | Import prompts (JSON) |
-| `GET` | `/api/v1/export` | Export full library |
+| `GET` | `/api/v1/export` | Export prompt data |
 
 All endpoints except `/health` require `Authorization: Bearer <key>`.
 
