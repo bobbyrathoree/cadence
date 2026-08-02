@@ -113,4 +113,31 @@ describe('PlaybookStepper copy workflow', () => {
       mocks.advance.mock.invocationCallOrder[0],
     );
   });
+
+  it('advances past a missing prompt when the user skips the step', async () => {
+    mocks.getPlaybook.mockResolvedValue({
+      id: 'playbook-1',
+      title: 'Playbook',
+      description: null,
+      steps: [
+        {
+          id: 'step-1',
+          playbook_id: 'playbook-1',
+          prompt_id: 'deleted-prompt',
+          position: 0,
+          step_type: 'single',
+          instructions: null,
+          choice_prompt_ids: [],
+          prompt: null,
+          choice_prompts: [],
+        },
+      ],
+    } satisfies PlaybookWithSteps);
+
+    render(<PlaybookStepper playbookId="playbook-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip step' }));
+
+    await waitFor(() => expect(mocks.advance).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('This prompt has been removed.')).toBeInTheDocument();
+  });
 });

@@ -10,6 +10,7 @@ interface Props {
   stepNumber: number;
   isLast: boolean;
   onCopy: (target: PlaybookCopyTarget) => void;
+  onSkip?: () => void;
 }
 
 export interface PlaybookCopyTarget {
@@ -160,7 +161,14 @@ function StepVariantSelector({
 /*  Main PlaybookStep                                                  */
 /* ------------------------------------------------------------------ */
 
-export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props) {
+export function PlaybookStep({
+  step,
+  status,
+  stepNumber,
+  isLast,
+  onCopy,
+  onSkip,
+}: Props) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
   // Resolve the variant to display for the active step
@@ -173,8 +181,15 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
     return primary ?? step.prompt.variants[0] ?? null;
   }, [step.prompt, selectedVariantId]);
 
-  const stepTitle = step.prompt?.title ?? `Step ${stepNumber}`;
   const isChoice = step.step_type === 'choice';
+  const isMissing = isChoice
+    ? step.choice_prompts.length < 2
+    : step.prompt === null;
+  const stepTitle = isMissing
+    ? isChoice
+      ? 'Prompts removed'
+      : 'Prompt removed'
+    : step.prompt?.title ?? `Step ${stepNumber}`;
 
   return (
     <div className="flex gap-0">
@@ -269,8 +284,45 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
               </div>
             )}
 
+            {isMissing && (
+              <div
+                role="status"
+                style={{
+                  padding: '10px 12px',
+                  marginBottom: 12,
+                  borderRadius: 6,
+                  color: '#ff453a',
+                  background: 'color-mix(in srgb, #ff453a 8%, transparent)',
+                  fontSize: 12,
+                }}
+              >
+                <div>
+                  {isChoice
+                    ? 'Fewer than two prompts remain in this choice step.'
+                    : 'This prompt has been removed.'}
+                </div>
+                {status === 'active' && onSkip && (
+                  <button
+                    type="button"
+                    onClick={onSkip}
+                    style={{
+                      marginTop: 8,
+                      padding: '6px 10px',
+                      border: '1px solid #ff453a',
+                      borderRadius: 5,
+                      background: 'transparent',
+                      color: '#ff453a',
+                      fontSize: 11,
+                    }}
+                  >
+                    Skip step
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* CHOICE step: grid of prompt pills */}
-            {isChoice && step.choice_prompts && step.choice_prompts.length > 0 && (
+            {isChoice && !isMissing && step.choice_prompts.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-3">
                 {step.choice_prompts.map((cp) => {
                   const variant = getPrimaryVariant(cp);
@@ -313,7 +365,7 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
             )}
 
             {/* SINGLE step: variant selector + prompt preview + copy button */}
-            {!isChoice && step.prompt && (
+            {!isChoice && !isMissing && step.prompt && (
               <>
                 <StepVariantSelector
                   variants={step.prompt.variants}
@@ -405,6 +457,9 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
                 >
                   Choice
                 </span>
+              )}
+              {isMissing && (
+                <span style={{ fontSize: 10, color: '#ff453a' }}>Missing</span>
               )}
             </div>
           </div>

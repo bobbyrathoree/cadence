@@ -2,7 +2,10 @@
  * PlaybookBillboard -- Feature discovery empty state for Playbooks.
  * Shown when the user clicks into the Playbooks section but has none created yet.
  */
+import { useAppContext } from '../../lib/context';
+
 export function PlaybookBillboard() {
+  const { setPlaybookBuilderMode } = useAppContext();
   return (
     <div
       className="flex-1 flex items-center justify-center"
@@ -96,7 +99,7 @@ export function PlaybookBillboard() {
             e.currentTarget.style.opacity = '1';
           }}
           onClick={() => {
-            console.log('[Cadence] Build your first Playbook -- create flow not yet implemented');
+            setPlaybookBuilderMode('create');
           }}
         >
           Build your first Playbook

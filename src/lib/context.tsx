@@ -11,6 +11,7 @@ import {
 } from './promptDrafts';
 
 export type ActiveView = 'all' | 'favorites' | 'recents' | 'collection' | 'playbook';
+export type PlaybookBuilderMode = 'create' | 'edit';
 
 export interface AppContextType {
   // Navigation
@@ -20,6 +21,8 @@ export interface AppContextType {
   setActiveCollectionId: (id: string | null) => void;
   activePlaybookId: string | null;
   setActivePlaybookId: (id: string | null) => void;
+  playbookBuilderMode: PlaybookBuilderMode | null;
+  setPlaybookBuilderMode: (mode: PlaybookBuilderMode | null) => void;
 
   // Selection
   selectedPromptId: string | null;
@@ -55,6 +58,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeView, setActiveView] = useState<ActiveView>('all');
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [activePlaybookId, setActivePlaybookId] = useState<string | null>(null);
+  const [playbookBuilderMode, setPlaybookBuilderMode] =
+    useState<PlaybookBuilderMode | null>(null);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -90,6 +95,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveCollectionId,
       activePlaybookId,
       setActivePlaybookId,
+      playbookBuilderMode,
+      setPlaybookBuilderMode,
       selectedPromptId,
       setSelectedPromptId,
       searchQuery,
@@ -110,6 +117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       activeView,
       activeCollectionId,
       activePlaybookId,
+      playbookBuilderMode,
       selectedPromptId,
       searchQuery,
       refreshCounter,

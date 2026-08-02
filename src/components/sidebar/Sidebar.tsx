@@ -144,6 +144,8 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
     setActiveCollectionId,
     activePlaybookId,
     setActivePlaybookId,
+    playbookBuilderMode,
+    setPlaybookBuilderMode,
     requestEditExit,
     refreshCounter,
     setIsImportOpen,
@@ -169,6 +171,7 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
       setActiveView(view);
       setActiveCollectionId(null);
       setActivePlaybookId(null);
+      setPlaybookBuilderMode(null);
     });
   }
 
@@ -177,6 +180,7 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
       setActiveView('collection');
       setActiveCollectionId(id);
       setActivePlaybookId(null);
+      setPlaybookBuilderMode(null);
     });
   }
 
@@ -185,6 +189,7 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
       setActiveView('playbook');
       setActivePlaybookId(id);
       setActiveCollectionId(null);
+      setPlaybookBuilderMode(null);
     });
   }
 
@@ -272,18 +277,34 @@ export function Sidebar({ prompts }: { prompts: PromptListItem[] }) {
       <div className="px-2">
         <SectionHeader
           trailing={
-            <span
-              className="rounded-full px-1.5 py-0.5"
+            <button
+              type="button"
+              aria-label="New Playbook"
+              title="New Playbook"
+              onClick={() => {
+                requestEditExit(() => {
+                  setActiveView('playbook');
+                  setActiveCollectionId(null);
+                  setActivePlaybookId(null);
+                  setPlaybookBuilderMode('create');
+                });
+              }}
               style={{
-                fontSize: '9px',
-                fontWeight: 600,
-                letterSpacing: '0.03em',
-                background: 'color-mix(in srgb, var(--accent) 15%, transparent)',
+                width: 22,
+                height: 22,
+                border: 'none',
+                borderRadius: 5,
+                background:
+                  playbookBuilderMode === 'create'
+                    ? 'color-mix(in srgb, var(--accent) 18%, transparent)'
+                    : 'transparent',
                 color: 'var(--accent)',
+                fontSize: 16,
+                lineHeight: 1,
               }}
             >
-              New
-            </span>
+              +
+            </button>
           }
         >
           Playbooks

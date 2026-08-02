@@ -14,7 +14,7 @@ interface Props {
 export function PlaybookStepper({ playbookId }: Props) {
   const [playbook, setPlaybook] = useState<PlaybookWithSteps | null>(null);
   const [loading, setLoading] = useState(true);
-  const { refreshCounter } = useAppContext();
+  const { refreshCounter, setPlaybookBuilderMode } = useAppContext();
   const { session } = usePlaybookSession(refreshCounter);
 
   // Fetch the playbook
@@ -78,6 +78,15 @@ export function PlaybookStepper({ playbookId }: Props) {
     },
     [isSessionActive],
   );
+
+  const handleSkip = useCallback(async () => {
+    if (!isSessionActive) return;
+    try {
+      await api.session.advance();
+    } catch (err) {
+      console.error('Skip step failed:', err);
+    }
+  }, [isSessionActive]);
 
   function getStepStatus(index: number): StepStatus {
     if (!isSessionActive) return 'pending';
@@ -153,6 +162,20 @@ export function PlaybookStepper({ playbookId }: Props) {
 
           {/* Right side: status badge + actions */}
           <div className="flex items-center gap-3 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setPlaybookBuilderMode('edit')}
+              style={{
+                padding: '5px 10px',
+                fontSize: 11,
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Edit
+            </button>
             {isSessionActive ? (
               <>
                 <span
@@ -290,6 +313,7 @@ export function PlaybookStepper({ playbookId }: Props) {
                 stepNumber={idx + 1}
                 isLast={idx === steps.length - 1}
                 onCopy={handleCopyAndAdvance}
+                onSkip={handleSkip}
               />
             ))}
           </div>

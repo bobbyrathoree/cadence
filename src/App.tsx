@@ -206,7 +206,7 @@ function AppContent() {
     >
       <Sidebar prompts={allPrompts} />
       <PromptList prompts={prompts} promptsLoading={promptsLoading} />
-      <DetailPanel />
+      <DetailPanel prompts={allPrompts} />
       <Toast message={toast.message} visible={toast.visible} onHide={hideToast} />
       <ImportModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
       <SettingsModal

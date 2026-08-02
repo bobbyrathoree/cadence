@@ -4,10 +4,18 @@ import { PromptDetail } from './PromptDetail';
 import { NewPromptForm } from './NewPromptForm';
 import { PlaybookStepper } from '../playbook/PlaybookStepper';
 import { PlaybookBillboard } from '../playbook/PlaybookBillboard';
+import { PlaybookBuilder } from '../playbook/PlaybookBuilder';
+import type { PromptListItem } from '../../lib/types';
 
-export function DetailPanel() {
-  const { selectedPromptId, activeView, activePlaybookId, refreshCounter, isCreating } =
-    useAppContext();
+export function DetailPanel({ prompts }: { prompts: PromptListItem[] }) {
+  const {
+    selectedPromptId,
+    activeView,
+    activePlaybookId,
+    refreshCounter,
+    isCreating,
+    playbookBuilderMode,
+  } = useAppContext();
   const { playbooks } = usePlaybooks(refreshCounter);
 
   const showPlaybook = activeView === 'playbook';
@@ -19,6 +27,8 @@ export function DetailPanel() {
     >
       {isCreating ? (
         <NewPromptForm />
+      ) : playbookBuilderMode ? (
+        <PlaybookBuilder prompts={prompts} />
       ) : showPlaybook && activePlaybookId ? (
         <PlaybookStepper playbookId={activePlaybookId} />
       ) : showPlaybook && playbooks.length === 0 ? (
