@@ -5,6 +5,7 @@ use axum::{
     response::Response,
 };
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 
 use super::server::ApiState;
 
@@ -44,7 +45,7 @@ pub async fn auth_middleware(
             if !scheme.eq_ignore_ascii_case("bearer") {
                 return Err(StatusCode::UNAUTHORIZED);
             }
-            if token == state.api_key {
+            if bool::from(token.as_bytes().ct_eq(state.api_key.as_bytes())) {
                 Ok(next.run(req).await)
             } else {
                 Err(StatusCode::UNAUTHORIZED)
