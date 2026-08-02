@@ -55,9 +55,7 @@ pub fn update_shortcut(
 ) -> rusqlite::Result<Vec<KeyboardShortcut>> {
     // Load current, update the one action, save back
     let mut map = match get_setting(conn, SHORTCUTS_KEY)? {
-        Some(json) => {
-            serde_json::from_str::<HashMap<String, String>>(&json).unwrap_or_default()
-        }
+        Some(json) => serde_json::from_str::<HashMap<String, String>>(&json).unwrap_or_default(),
         None => default_shortcuts_map(),
     };
     map.insert(action.to_string(), binding.to_string());

@@ -12,7 +12,10 @@ use super::server::ApiState;
 use crate::models::collection::CreateCollectionRequest;
 use crate::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, tag_service};
+use crate::services::{
+    collection_service, import_export, playbook_service, prompt_service, search_service,
+    tag_service,
+};
 
 const DEFAULT_PAGE_SIZE: i64 = 100;
 const MAX_PAGE_SIZE: i64 = 500;
@@ -232,8 +235,7 @@ async fn add_variant(
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::add_variant(&conn, &id, &req.label, &req.content)
-            .map_err(|e| e.to_string())
+        prompt_service::add_variant(&conn, &id, &req.label, &req.content).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -293,9 +295,7 @@ async fn delete_variant(
 // Tags
 // ------------------------------------------------------------------
 
-async fn list_tags(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn list_tags(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         tag_service::list_tags(&conn).map_err(|e| e.to_string())
@@ -371,8 +371,7 @@ async fn remove_tag_from_prompt(
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id)
-            .map_err(|e| e.to_string())
+        tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -388,9 +387,7 @@ async fn remove_tag_from_prompt(
 // Collections
 // ------------------------------------------------------------------
 
-async fn list_collections(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn list_collections(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         collection_service::list_collections(&conn).map_err(|e| e.to_string())
@@ -429,8 +426,7 @@ async fn get_collection_prompts(
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        collection_service::get_collection_prompts(&conn, &id, 100, 0)
-            .map_err(|e| e.to_string())
+        collection_service::get_collection_prompts(&conn, &id, 100, 0).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -555,9 +551,7 @@ async fn import_prompts(
     }
 }
 
-async fn export_prompts(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn export_prompts(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         import_export::export_json(&conn).map_err(|e| e.to_string())
@@ -582,9 +576,7 @@ async fn export_prompts(
 // Playbooks
 // ------------------------------------------------------------------
 
-async fn list_playbooks(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn list_playbooks(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         playbook_service::list_playbooks(&conn).map_err(|e| e.to_string())

@@ -115,9 +115,12 @@ fn main() {
 
                 let shortcut_binding = {
                     let state = app.state::<AppState>();
-                    let conn = state.db.lock().expect("Failed to lock DB for shortcut init");
-                    let shortcuts = settings_service::get_keyboard_shortcuts(&conn)
-                        .unwrap_or_default();
+                    let conn = state
+                        .db
+                        .lock()
+                        .expect("Failed to lock DB for shortcut init");
+                    let shortcuts =
+                        settings_service::get_keyboard_shortcuts(&conn).unwrap_or_default();
                     shortcuts
                         .iter()
                         .find(|s| s.action == "global_toggle_search")
@@ -130,9 +133,7 @@ fn main() {
                 app.global_shortcut()
                     .on_shortcut(shortcut_binding.as_str(), move |_app, _shortcut, event| {
                         if event.state == ShortcutState::Pressed {
-                            if let Some(window) =
-                                handle_for_shortcut.get_webview_window("search")
-                            {
+                            if let Some(window) = handle_for_shortcut.get_webview_window("search") {
                                 if window.is_visible().unwrap_or(false) {
                                     let _ = window.hide();
                                 } else {

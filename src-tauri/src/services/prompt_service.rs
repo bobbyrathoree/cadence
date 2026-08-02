@@ -228,20 +228,29 @@ pub fn list_prompts(
 
     let rows = stmt.query_map(params![limit, offset], |row| {
         Ok((
-            row.get::<_, String>(0)?,  // id
-            row.get::<_, String>(1)?,  // title
-            row.get::<_, Option<String>>(2)?,  // description
-            row.get::<_, i64>(3)? != 0,  // is_favorite
-            row.get::<_, i64>(4)?,  // copy_count
-            row.get::<_, Option<String>>(5)?,  // last_copied_at
-            row.get::<_, String>(6)?,  // snippet
-            row.get::<_, i64>(7)?,  // variant_count
+            row.get::<_, String>(0)?,         // id
+            row.get::<_, String>(1)?,         // title
+            row.get::<_, Option<String>>(2)?, // description
+            row.get::<_, i64>(3)? != 0,       // is_favorite
+            row.get::<_, i64>(4)?,            // copy_count
+            row.get::<_, Option<String>>(5)?, // last_copied_at
+            row.get::<_, String>(6)?,         // snippet
+            row.get::<_, i64>(7)?,            // variant_count
         ))
     })?;
 
     let mut items = Vec::new();
     for row in rows {
-        let (id, title, description, is_favorite, copy_count, last_copied_at, snippet, variant_count) = row?;
+        let (
+            id,
+            title,
+            description,
+            is_favorite,
+            copy_count,
+            last_copied_at,
+            snippet,
+            variant_count,
+        ) = row?;
         let tags = tag_service::get_tags_for_prompt(conn, &id)?;
         items.push(PromptListItem {
             id,
@@ -481,9 +490,8 @@ pub fn delete_variant(conn: &Connection, id: &str) -> rusqlite::Result<()> {
     )?;
 
     if is_primary {
-        let replacement = next_active_variant_id(conn, &prompt_id, id)?.ok_or_else(|| {
-            invalid_input("cannot delete the only active variant on a prompt")
-        })?;
+        let replacement = next_active_variant_id(conn, &prompt_id, id)?
+            .ok_or_else(|| invalid_input("cannot delete the only active variant on a prompt"))?;
 
         conn.execute(
             "UPDATE prompts SET primary_variant_id = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
@@ -539,7 +547,11 @@ pub fn update_fts_index(conn: &Connection, prompt_id: &str) -> rusqlite::Result<
 
     // Get tag names
     let tags = tag_service::get_tags_for_prompt(conn, prompt_id)?;
-    let tag_names: String = tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(" ");
+    let tag_names: String = tags
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
 
     // Get or create a stable rowid via fts_mapping
     conn.execute(

@@ -3,9 +3,9 @@ use rusqlite::Connection;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::sync::{Arc, Mutex};
 
 use super::auth::auth_middleware;
 use super::routes;
@@ -28,7 +28,10 @@ pub async fn start(state: Arc<ApiState>) {
     let app = Router::new()
         .merge(routes::router())
         .layer(DefaultBodyLimit::max(MAX_API_BODY_BYTES))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -45,9 +48,7 @@ pub async fn start(state: Arc<ApiState>) {
 
     println!("Cadence API server listening on 127.0.0.1:{}", port);
 
-    axum::serve(listener, app)
-        .await
-        .expect("API server error");
+    axum::serve(listener, app).await.expect("API server error");
 }
 
 /// Write the API discovery file so external tools (Raycast, Shortcuts) can find the server.
@@ -82,7 +83,7 @@ fn write_private_file(path: &std::path::Path, payload: &[u8]) -> std::io::Result
         file.write_all(payload)?;
         file.flush()?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(unix))]

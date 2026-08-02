@@ -184,17 +184,14 @@ pub fn add_step(
     let id = uuid::Uuid::new_v4().to_string();
 
     // Determine next position
-    let max_position: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) FROM playbook_steps WHERE playbook_id = ?1",
-            params![playbook_id],
-            |row| row.get(0),
-        )?;
+    let max_position: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(position), -1) FROM playbook_steps WHERE playbook_id = ?1",
+        params![playbook_id],
+        |row| row.get(0),
+    )?;
     let position = max_position + 1;
 
-    let choice_ids_str = choice_prompt_ids
-        .as_ref()
-        .map(|ids| ids.join(","));
+    let choice_ids_str = choice_prompt_ids.as_ref().map(|ids| ids.join(","));
 
     conn.execute(
         "INSERT INTO playbook_steps (id, playbook_id, prompt_id, position, step_type, instructions, choice_prompt_ids)

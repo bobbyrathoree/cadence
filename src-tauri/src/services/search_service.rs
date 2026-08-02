@@ -20,14 +20,8 @@ pub fn search_prompts(
 
     // Sanitize the query: remove FTS5 special characters, then append * for prefix matching
     let sanitized = query
-        .replace('"', "")
-        .replace('\'', "")
-        .replace('(', "")
-        .replace(')', "")
-        .replace('*', "")
-        .replace('+', " ")
-        .replace('-', " ")
-        .replace(':', " ");
+        .replace(['"', '\'', '(', ')', '*'], "")
+        .replace(['+', '-', ':'], " ");
     let sanitized = sanitized.trim();
 
     if sanitized.is_empty() {
@@ -70,7 +64,16 @@ pub fn search_prompts(
 
     let mut items = Vec::new();
     for row in rows {
-        let (id, title, description, is_favorite, copy_count, last_copied_at, snippet, variant_count) = row?;
+        let (
+            id,
+            title,
+            description,
+            is_favorite,
+            copy_count,
+            last_copied_at,
+            snippet,
+            variant_count,
+        ) = row?;
         let tags = tag_service::get_tags_for_prompt(conn, &id)?;
         items.push(PromptListItem {
             id,

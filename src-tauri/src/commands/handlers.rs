@@ -2,13 +2,16 @@ use tauri::{Emitter, Manager};
 
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
-use crate::models::settings::KeyboardShortcut;
-use crate::services::import_export::ImportResult;
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
+use crate::models::settings::KeyboardShortcut;
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::services::{collection_service, import_export, playbook_service, prompt_service, search_service, settings_service, tag_service};
+use crate::services::import_export::ImportResult;
+use crate::services::{
+    collection_service, import_export, playbook_service, prompt_service, search_service,
+    settings_service, tag_service,
+};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -18,7 +21,10 @@ pub fn list_prompts(state: tauri::State<'_, AppState>) -> Result<Vec<PromptListI
 }
 
 #[tauri::command]
-pub fn get_prompt(id: String, state: tauri::State<'_, AppState>) -> Result<PromptWithVariants, String> {
+pub fn get_prompt(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<PromptWithVariants, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     prompt_service::get_prompt_by_id(&conn, &id).map_err(|e| e.to_string())
 }
@@ -49,7 +55,11 @@ pub fn update_prompt(
 }
 
 #[tauri::command]
-pub fn delete_prompt(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+pub fn delete_prompt(
+    id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     prompt_service::delete_prompt(&conn, &id).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
@@ -57,7 +67,11 @@ pub fn delete_prompt(id: String, state: tauri::State<'_, AppState>, app: tauri::
 }
 
 #[tauri::command]
-pub fn toggle_favorite(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<bool, String> {
+pub fn toggle_favorite(
+    id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
 
     // Get current favorite state
@@ -94,7 +108,8 @@ pub fn add_variant(
     app: tauri::AppHandle,
 ) -> Result<Variant, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let result = prompt_service::add_variant(&conn, &prompt_id, &label, &content).map_err(|e| e.to_string())?;
+    let result = prompt_service::add_variant(&conn, &prompt_id, &label, &content)
+        .map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -108,13 +123,18 @@ pub fn update_variant(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    prompt_service::update_variant(&conn, &id, &content, label.as_deref()).map_err(|e| e.to_string())?;
+    prompt_service::update_variant(&conn, &id, &content, label.as_deref())
+        .map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_variant(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+pub fn delete_variant(
+    id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     prompt_service::delete_variant(&conn, &id).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
@@ -160,7 +180,8 @@ pub fn add_tags_to_prompt(
     app: tauri::AppHandle,
 ) -> Result<Vec<Tag>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let result = tag_service::add_tags_to_prompt(&conn, &prompt_id, &tags).map_err(|e| e.to_string())?;
+    let result =
+        tag_service::add_tags_to_prompt(&conn, &prompt_id, &tags).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -191,7 +212,8 @@ pub fn create_collection(
     app: tauri::AppHandle,
 ) -> Result<Collection, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let result = collection_service::create_collection(&conn, request).map_err(|e| e.to_string())?;
+    let result =
+        collection_service::create_collection(&conn, request).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -287,9 +309,7 @@ pub fn add_playbook_step(
 }
 
 #[tauri::command]
-pub fn get_playbook_session(
-    state: tauri::State<'_, AppState>,
-) -> Result<PlaybookSession, String> {
+pub fn get_playbook_session(state: tauri::State<'_, AppState>) -> Result<PlaybookSession, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     playbook_service::get_session(&conn).map_err(|e| e.to_string())
 }
@@ -318,7 +338,10 @@ pub fn advance_playbook_step(
 }
 
 #[tauri::command]
-pub fn end_playbook_session(state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+pub fn end_playbook_session(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     playbook_service::end_session(&conn).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
@@ -330,7 +353,11 @@ pub fn end_playbook_session(state: tauri::State<'_, AppState>, app: tauri::AppHa
 // ------------------------------------------------------------------
 
 #[tauri::command]
-pub fn import_json(state: tauri::State<'_, AppState>, app: tauri::AppHandle, json_data: String) -> Result<ImportResult, String> {
+pub fn import_json(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    json_data: String,
+) -> Result<ImportResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let result = import_export::import_json(&conn, &json_data).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
@@ -344,7 +371,11 @@ pub fn export_json(state: tauri::State<'_, AppState>) -> Result<String, String> 
 }
 
 #[tauri::command]
-pub fn import_markdown_files(state: tauri::State<'_, AppState>, app: tauri::AppHandle, files: Vec<(String, String)>) -> Result<ImportResult, String> {
+pub fn import_markdown_files(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    files: Vec<(String, String)>,
+) -> Result<ImportResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let result = import_export::import_markdown_batch(&conn, files).map_err(|e| e.to_string())?;
     let _ = app.emit("db-changed", ());
@@ -419,9 +450,7 @@ pub fn update_keyboard_shortcut(
                     old.as_str(),
                     move |_app, _shortcut, event| {
                         if event.state == ShortcutState::Pressed {
-                            if let Some(window) =
-                                rollback_handle.get_webview_window("search")
-                            {
+                            if let Some(window) = rollback_handle.get_webview_window("search") {
                                 if window.is_visible().unwrap_or(false) {
                                     let _ = window.hide();
                                 } else {

@@ -87,12 +87,7 @@ pub fn get_collection_prompts(
     let (is_smart, filter_query): (bool, Option<String>) = conn.query_row(
         "SELECT is_smart, filter_query FROM collections WHERE id = ?1",
         params![collection_id],
-        |row| {
-            Ok((
-                row.get::<_, i64>(0)? != 0,
-                row.get::<_, Option<String>>(1)?,
-            ))
-        },
+        |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, Option<String>>(1)?)),
     )?;
 
     if is_smart {
@@ -136,7 +131,16 @@ fn get_manual_collection_prompts(
 
     let mut items = Vec::new();
     for row in rows {
-        let (id, title, description, is_favorite, copy_count, last_copied_at, snippet, variant_count) = row?;
+        let (
+            id,
+            title,
+            description,
+            is_favorite,
+            copy_count,
+            last_copied_at,
+            snippet,
+            variant_count,
+        ) = row?;
         let tags = tag_service::get_tags_for_prompt(conn, &id)?;
         items.push(PromptListItem {
             id,
@@ -186,11 +190,9 @@ fn get_smart_collection_prompts(
         rusqlite::Error::InvalidParameterName(format!("Invalid filter_query JSON: {}", e))
     })?;
 
-    let conditions = filter["conditions"]
-        .as_array()
-        .ok_or_else(|| {
-            rusqlite::Error::InvalidParameterName("filter_query missing 'conditions' array".into())
-        })?;
+    let conditions = filter["conditions"].as_array().ok_or_else(|| {
+        rusqlite::Error::InvalidParameterName("filter_query missing 'conditions' array".into())
+    })?;
 
     let match_mode = filter["match"].as_str().unwrap_or("all");
     let joiner = if match_mode == "any" { " OR " } else { " AND " };
@@ -267,7 +269,8 @@ fn get_smart_collection_prompts(
     all_params.push(Box::new(offset));
     all_params.extend(param_values);
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        all_params.iter().map(|p| p.as_ref()).collect();
 
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok((
@@ -284,7 +287,16 @@ fn get_smart_collection_prompts(
 
     let mut items = Vec::new();
     for row in rows {
-        let (id, title, description, is_favorite, copy_count, last_copied_at, snippet, variant_count) = row?;
+        let (
+            id,
+            title,
+            description,
+            is_favorite,
+            copy_count,
+            last_copied_at,
+            snippet,
+            variant_count,
+        ) = row?;
         let tags = tag_service::get_tags_for_prompt(conn, &id)?;
         items.push(PromptListItem {
             id,
@@ -308,12 +320,11 @@ pub fn add_prompt_to_collection(
     collection_id: &str,
     prompt_id: &str,
 ) -> rusqlite::Result<()> {
-    let max_position: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) FROM collection_prompts WHERE collection_id = ?1",
-            params![collection_id],
-            |row| row.get(0),
-        )?;
+    let max_position: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(position), -1) FROM collection_prompts WHERE collection_id = ?1",
+        params![collection_id],
+        |row| row.get(0),
+    )?;
 
     conn.execute(
         "INSERT OR IGNORE INTO collection_prompts (collection_id, prompt_id, position) VALUES (?1, ?2, ?3)",

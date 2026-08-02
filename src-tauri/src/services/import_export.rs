@@ -80,9 +80,8 @@ fn is_duplicate(conn: &Connection, title: &str, content: &str) -> bool {
 
 /// Import prompts from a JSON string. Expects `ImportData` format (object with `prompts` array).
 pub fn import_json(conn: &Connection, json_str: &str) -> rusqlite::Result<ImportResult> {
-    let data: ImportData = serde_json::from_str(json_str).map_err(|e| {
-        rusqlite::Error::InvalidParameterName(format!("Invalid JSON: {}", e))
-    })?;
+    let data: ImportData = serde_json::from_str(json_str)
+        .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid JSON: {}", e)))?;
 
     let mut result = ImportResult {
         imported: 0,
@@ -111,9 +110,12 @@ pub fn import_json(conn: &Connection, json_str: &str) -> rusqlite::Result<Import
                 // Add extra variants beyond the default one
                 if let Some(variants) = prompt_data.variants {
                     for variant in variants {
-                        if let Err(e) =
-                            prompt_service::add_variant(conn, &created.prompt.id, &variant.label, &variant.content)
-                        {
+                        if let Err(e) = prompt_service::add_variant(
+                            conn,
+                            &created.prompt.id,
+                            &variant.label,
+                            &variant.content,
+                        ) {
                             result.errors.push(format!(
                                 "Prompt #{} ({}): failed to add variant '{}': {}",
                                 i, prompt_data.title, variant.label, e
@@ -124,10 +126,9 @@ pub fn import_json(conn: &Connection, json_str: &str) -> rusqlite::Result<Import
                 result.imported += 1;
             }
             Err(e) => {
-                result.errors.push(format!(
-                    "Prompt #{} ({}): {}",
-                    i, prompt_data.title, e
-                ));
+                result
+                    .errors
+                    .push(format!("Prompt #{} ({}): {}", i, prompt_data.title, e));
             }
         }
     }
@@ -138,9 +139,8 @@ pub fn import_json(conn: &Connection, json_str: &str) -> rusqlite::Result<Import
 /// Export all non-deleted prompts as a pretty-printed JSON string.
 pub fn export_json(conn: &Connection) -> rusqlite::Result<String> {
     // Get all non-deleted prompt IDs
-    let mut stmt = conn.prepare(
-        "SELECT id FROM prompts WHERE deleted_at IS NULL ORDER BY updated_at DESC",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id FROM prompts WHERE deleted_at IS NULL ORDER BY updated_at DESC")?;
     let ids: Vec<String> = stmt
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;

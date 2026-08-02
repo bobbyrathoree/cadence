@@ -9,7 +9,13 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(
         app,
         &[
-            &MenuItem::with_id(app, "search", "Search...  \u{2318}\u{21E7}P", true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "search",
+                "Search...  \u{2318}\u{21E7}P",
+                true,
+                None::<&str>,
+            )?,
             &MenuItem::with_id(app, "open", "Open Cadence", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", "Quit Cadence", true, None::<&str>)?,

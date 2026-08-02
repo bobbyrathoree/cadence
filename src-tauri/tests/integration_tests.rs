@@ -2,7 +2,6 @@
 ///
 /// Each test creates a fresh in-memory SQLite database with the full schema
 /// applied, then exercises the service layer directly.
-
 use cadence_lib::db::schema;
 use cadence_lib::models::collection::CreateCollectionRequest;
 use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
@@ -71,8 +70,15 @@ fn test_prompt_crud() {
 
     // --- Get by ID ---
     let fetched = prompt_service::get_prompt_by_id(&conn, prompt_id).unwrap();
-    assert_eq!(fetched.prompt.title, "My Prompt", "Fetched title should match");
-    assert_eq!(fetched.variants.len(), 1, "Fetched prompt should have 1 variant");
+    assert_eq!(
+        fetched.prompt.title, "My Prompt",
+        "Fetched title should match"
+    );
+    assert_eq!(
+        fetched.variants.len(),
+        1,
+        "Fetched prompt should have 1 variant"
+    );
     assert_eq!(fetched.tags.len(), 2, "Fetched prompt should have 2 tags");
 
     // --- Update ---
@@ -125,13 +131,12 @@ fn test_variant_operations() {
     assert_eq!(fetched.variants.len(), 1, "Should start with 1 variant");
 
     // --- Add second variant ---
-    let v2 = prompt_service::add_variant(&conn, prompt_id, "Claude Opus", "Opus-tuned content")
-        .unwrap();
+    let v2 =
+        prompt_service::add_variant(&conn, prompt_id, "Claude Opus", "Opus-tuned content").unwrap();
     assert_eq!(v2.label, "Claude Opus", "Second variant label should match");
 
     // --- Add third variant ---
-    let v3 =
-        prompt_service::add_variant(&conn, prompt_id, "Concise", "Short and direct").unwrap();
+    let v3 = prompt_service::add_variant(&conn, prompt_id, "Concise", "Short and direct").unwrap();
     assert_eq!(v3.label, "Concise", "Third variant label should match");
 
     // --- Verify all 3 variants ---
@@ -143,8 +148,13 @@ fn test_variant_operations() {
     );
 
     // --- Update a variant ---
-    prompt_service::update_variant(&conn, &v2.id, "Updated Opus content", Some("Claude Opus v2"))
-        .unwrap();
+    prompt_service::update_variant(
+        &conn,
+        &v2.id,
+        "Updated Opus content",
+        Some("Claude Opus v2"),
+    )
+    .unwrap();
     let fetched = prompt_service::get_prompt_by_id(&conn, prompt_id).unwrap();
     let updated_v2 = fetched.variants.iter().find(|v| v.id == v2.id).unwrap();
     assert_eq!(
@@ -230,7 +240,11 @@ fn test_delete_primary_variant_promotes_next_active_variant() {
         Some(replacement.id.as_str()),
         "Deleting the primary variant should promote the next active variant"
     );
-    assert_eq!(fetched.variants.len(), 1, "Only the replacement variant should remain");
+    assert_eq!(
+        fetched.variants.len(),
+        1,
+        "Only the replacement variant should remain"
+    );
 }
 
 #[test]
@@ -303,12 +317,8 @@ fn test_tag_operations() {
     let prompt = create_test_prompt(&conn, "Tagged Prompt", "Content here", vec![], false);
     let prompt_id = &prompt.prompt.id;
 
-    tag_service::add_tags_to_prompt(
-        &conn,
-        prompt_id,
-        &["alpha".to_string(), "beta".to_string()],
-    )
-    .unwrap();
+    tag_service::add_tags_to_prompt(&conn, prompt_id, &["alpha".to_string(), "beta".to_string()])
+        .unwrap();
 
     // --- get_tags_for_prompt ---
     let tags = tag_service::get_tags_for_prompt(&conn, prompt_id).unwrap();
@@ -323,10 +333,7 @@ fn test_tag_operations() {
 
     let tags_after = tag_service::get_tags_for_prompt(&conn, prompt_id).unwrap();
     assert_eq!(tags_after.len(), 1, "Should have 1 tag after removal");
-    assert_eq!(
-        tags_after[0].name, "beta",
-        "Remaining tag should be 'beta'"
-    );
+    assert_eq!(tags_after[0].name, "beta", "Remaining tag should be 'beta'");
 
     // --- List all tags ---
     // We created "rust", "alpha", "beta" across the test
@@ -373,11 +380,7 @@ fn test_collection_operations() {
 
     // --- Get collection prompts ---
     let items = collection_service::get_collection_prompts(&conn, &coll.id, 50, 0).unwrap();
-    assert_eq!(
-        items.len(),
-        3,
-        "Collection should have 3 prompts"
-    );
+    assert_eq!(items.len(), 3, "Collection should have 3 prompts");
     // Verify order: first added first
     assert_eq!(
         items[0].id, p1.prompt.id,
@@ -445,7 +448,8 @@ fn test_smart_collections() {
     );
 
     // --- Smart collection: tag includes model:claude ---
-    let filter_claude = r#"{"conditions":[{"field":"tag","op":"includes","value":"model:claude"}],"match":"all"}"#;
+    let filter_claude =
+        r#"{"conditions":[{"field":"tag","op":"includes","value":"model:claude"}],"match":"all"}"#;
     let claude_coll = collection_service::create_collection(
         &conn,
         CreateCollectionRequest {
@@ -468,7 +472,8 @@ fn test_smart_collections() {
     );
 
     // --- Smart collection: is_favorite = true ---
-    let filter_fav = r#"{"conditions":[{"field":"is_favorite","op":"eq","value":true}],"match":"all"}"#;
+    let filter_fav =
+        r#"{"conditions":[{"field":"is_favorite","op":"eq","value":true}],"match":"all"}"#;
     let fav_coll = collection_service::create_collection(
         &conn,
         CreateCollectionRequest {
@@ -482,8 +487,7 @@ fn test_smart_collections() {
     )
     .unwrap();
 
-    let fav_items =
-        collection_service::get_collection_prompts(&conn, &fav_coll.id, 50, 0).unwrap();
+    let fav_items = collection_service::get_collection_prompts(&conn, &fav_coll.id, 50, 0).unwrap();
     assert_eq!(
         fav_items.len(),
         2,
@@ -611,12 +615,10 @@ fn test_copy_tracking() {
     );
 
     // --- Add a variant and record copy with specific variant ---
-    let v2 =
-        prompt_service::add_variant(&conn, prompt_id, "Alt Version", "Alternative content")
-            .unwrap();
+    let v2 = prompt_service::add_variant(&conn, prompt_id, "Alt Version", "Alternative content")
+        .unwrap();
 
-    let content2 =
-        prompt_service::record_copy(&conn, prompt_id, Some(&v2.id)).unwrap();
+    let content2 = prompt_service::record_copy(&conn, prompt_id, Some(&v2.id)).unwrap();
     assert_eq!(
         content2, "Alternative content",
         "Returned content should match the specified variant"
@@ -682,11 +684,7 @@ fn test_playbook_operations() {
 
     // --- Get playbook with steps ---
     let fetched = playbook_service::get_playbook(&conn, &playbook.id).unwrap();
-    assert_eq!(
-        fetched.steps.len(),
-        3,
-        "Playbook should have 3 steps"
-    );
+    assert_eq!(fetched.steps.len(), 3, "Playbook should have 3 steps");
     assert_eq!(
         fetched.steps[0].step.position, 0,
         "Steps should be ordered by position"
@@ -712,11 +710,7 @@ fn test_playbook_operations() {
     // --- Remove a step and verify reordering ---
     playbook_service::remove_step(&conn, &step2.id).unwrap();
     let fetched = playbook_service::get_playbook(&conn, &playbook.id).unwrap();
-    assert_eq!(
-        fetched.steps.len(),
-        2,
-        "Should have 2 steps after removal"
-    );
+    assert_eq!(fetched.steps.len(), 2, "Should have 2 steps after removal");
     assert_eq!(
         fetched.steps[0].step.position, 0,
         "First step position should still be 0"
@@ -729,10 +723,7 @@ fn test_playbook_operations() {
     // --- Delete the playbook ---
     playbook_service::delete_playbook(&conn, &playbook.id).unwrap();
     let result = playbook_service::get_playbook(&conn, &playbook.id);
-    assert!(
-        result.is_err(),
-        "Deleted playbook should not be found"
-    );
+    assert!(result.is_err(), "Deleted playbook should not be found");
 }
 
 // =========================================================================
@@ -746,12 +737,25 @@ fn test_playbook_session() {
     // Create a playbook with steps
     let p1 = create_test_prompt(&conn, "Session Step 1", "Step 1", vec![], false);
     let p2 = create_test_prompt(&conn, "Session Step 2", "Step 2", vec![], false);
-    let playbook =
-        playbook_service::create_playbook(&conn, "Session Playbook", None).unwrap();
-    playbook_service::add_step(&conn, &playbook.id, Some(&p1.prompt.id), "single", None, None)
-        .unwrap();
-    playbook_service::add_step(&conn, &playbook.id, Some(&p2.prompt.id), "single", None, None)
-        .unwrap();
+    let playbook = playbook_service::create_playbook(&conn, "Session Playbook", None).unwrap();
+    playbook_service::add_step(
+        &conn,
+        &playbook.id,
+        Some(&p1.prompt.id),
+        "single",
+        None,
+        None,
+    )
+    .unwrap();
+    playbook_service::add_step(
+        &conn,
+        &playbook.id,
+        Some(&p2.prompt.id),
+        "single",
+        None,
+        None,
+    )
+    .unwrap();
 
     // --- Initial state: no active session ---
     let session = playbook_service::get_session(&conn).unwrap();
@@ -759,7 +763,10 @@ fn test_playbook_session() {
         session.active_playbook_id.is_none(),
         "No active playbook initially"
     );
-    assert_eq!(session.current_step, 0, "Current step should be 0 initially");
+    assert_eq!(
+        session.current_step, 0,
+        "Current step should be 0 initially"
+    );
 
     // --- Start session ---
     let session = playbook_service::start_session(&conn, &playbook.id).unwrap();
@@ -768,11 +775,11 @@ fn test_playbook_session() {
         Some(playbook.id.as_str()),
         "Active playbook should be set"
     );
-    assert_eq!(session.current_step, 0, "Current step should be 0 after start");
-    assert!(
-        session.started_at.is_some(),
-        "started_at should be set"
+    assert_eq!(
+        session.current_step, 0,
+        "Current step should be 0 after start"
     );
+    assert!(session.started_at.is_some(), "started_at should be set");
 
     // --- Advance step ---
     let session = playbook_service::advance_step(&conn).unwrap();
@@ -909,10 +916,7 @@ Write a compelling story about a robot discovering emotions."#;
     assert!(prompt.is_favorite, "Should be marked as favorite");
 
     let tag_names: Vec<&str> = prompt.tags.iter().map(|t| t.name.as_str()).collect();
-    assert!(
-        tag_names.contains(&"writing"),
-        "Should have 'writing' tag"
-    );
+    assert!(tag_names.contains(&"writing"), "Should have 'writing' tag");
     assert!(
         tag_names.contains(&"creative"),
         "Should have 'creative' tag"
@@ -921,8 +925,7 @@ Write a compelling story about a robot discovering emotions."#;
     // Verify the content is the body after frontmatter
     let full = prompt_service::get_prompt_by_id(&conn, &prompt.id).unwrap();
     assert_eq!(
-        full.variants[0].content,
-        "Write a compelling story about a robot discovering emotions.",
+        full.variants[0].content, "Write a compelling story about a robot discovering emotions.",
         "Content should be the body after frontmatter"
     );
 }
@@ -958,15 +961,8 @@ fn test_export_json() {
     let export: import_export::ExportData = serde_json::from_str(&json_str).unwrap();
 
     assert_eq!(export.version, "1.0", "Export version should be 1.0");
-    assert!(
-        !export.exported_at.is_empty(),
-        "exported_at should be set"
-    );
-    assert_eq!(
-        export.prompts.len(),
-        2,
-        "Should export 2 prompts"
-    );
+    assert!(!export.exported_at.is_empty(), "exported_at should be set");
+    assert_eq!(export.prompts.len(), 2, "Should export 2 prompts");
 
     // Find the first prompt in export
     let ep1 = export
@@ -982,7 +978,10 @@ fn test_export_json() {
         1,
         "Should have 1 extra variant (default excluded from variants list)"
     );
-    assert_eq!(ep1.variants[0].label, "Extra V", "Extra variant label should match");
+    assert_eq!(
+        ep1.variants[0].label, "Extra V",
+        "Extra variant label should match"
+    );
 
     // Find the second prompt
     let ep2 = export
@@ -990,16 +989,8 @@ fn test_export_json() {
         .iter()
         .find(|p| p.title == "Export Prompt 2")
         .expect("Export Prompt 2 should be in export");
-    assert_eq!(
-        ep2.tags.len(),
-        2,
-        "Second prompt should have 2 tags"
-    );
-    assert_eq!(
-        ep2.variants.len(),
-        0,
-        "Second prompt has no extra variants"
-    );
+    assert_eq!(ep2.tags.len(), 2, "Second prompt should have 2 tags");
+    assert_eq!(ep2.variants.len(), 0, "Second prompt has no extra variants");
 
     // --- Soft-deleted prompts should not appear in export ---
     prompt_service::delete_prompt(&conn, &p1.prompt.id).unwrap();
@@ -1036,10 +1027,7 @@ fn test_api_auth_state_structure() {
     };
 
     assert_eq!(state.api_key, "test-key-12345", "API key should be stored");
-    assert!(
-        state.db.lock().is_ok(),
-        "Database mutex should be lockable"
-    );
+    assert!(state.db.lock().is_ok(), "Database mutex should be lockable");
 }
 
 // =========================================================================
@@ -1052,7 +1040,13 @@ fn test_list_prompts_pagination() {
 
     // Create 5 prompts
     for i in 0..5 {
-        create_test_prompt(&conn, &format!("Prompt {}", i), &format!("Content {}", i), vec![], false);
+        create_test_prompt(
+            &conn,
+            &format!("Prompt {}", i),
+            &format!("Content {}", i),
+            vec![],
+            false,
+        );
     }
 
     let page1 = prompt_service::list_prompts(&conn, 2, 0).unwrap();
@@ -1078,7 +1072,10 @@ fn test_list_prompts_pagination() {
         }
         set.len()
     };
-    assert_eq!(unique_count, 5, "All 5 prompts should be unique across pages");
+    assert_eq!(
+        unique_count, 5,
+        "All 5 prompts should be unique across pages"
+    );
 }
 
 #[test]
@@ -1104,7 +1101,10 @@ fn test_update_prompt_favorite_toggle() {
     )
     .unwrap();
     let fetched = prompt_service::get_prompt_by_id(&conn, prompt_id).unwrap();
-    assert!(fetched.prompt.is_favorite, "Should be favorite after toggle on");
+    assert!(
+        fetched.prompt.is_favorite,
+        "Should be favorite after toggle on"
+    );
 
     // Toggle off
     prompt_service::update_prompt(
@@ -1167,10 +1167,7 @@ fn test_list_collections() {
         collections[1].name, "Beta Collection",
         "Second collection should be Beta"
     );
-    assert!(
-        collections[1].is_smart,
-        "Beta should be a smart collection"
-    );
+    assert!(collections[1].is_smart, "Beta should be a smart collection");
 }
 
 #[test]
@@ -1282,7 +1279,10 @@ fn test_get_default_shortcuts() {
     assert_eq!(shortcuts.len(), 11, "Should have 11 default shortcuts");
 
     // Verify specific defaults
-    let search = shortcuts.iter().find(|s| s.action == "global_toggle_search").unwrap();
+    let search = shortcuts
+        .iter()
+        .find(|s| s.action == "global_toggle_search")
+        .unwrap();
     assert_eq!(search.binding, "CommandOrControl+Shift+P");
     assert!(search.is_global);
 
@@ -1296,10 +1296,17 @@ fn test_update_shortcut_persists() {
     // Updating a shortcut should persist and be returned on next get
     let conn = setup_db();
 
-    let updated = settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+    let updated =
+        settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
     let new_prompt = updated.iter().find(|s| s.action == "new_prompt").unwrap();
-    assert_eq!(new_prompt.binding, "CommandOrControl+Shift+N", "Updated binding should persist");
-    assert_eq!(new_prompt.default_binding, "CommandOrControl+N", "Default should be unchanged");
+    assert_eq!(
+        new_prompt.binding, "CommandOrControl+Shift+N",
+        "Updated binding should persist"
+    );
+    assert_eq!(
+        new_prompt.default_binding, "CommandOrControl+N",
+        "Default should be unchanged"
+    );
 
     // Fetch again to verify DB persistence
     let shortcuts = settings_service::get_keyboard_shortcuts(&conn).unwrap();
@@ -1315,8 +1322,14 @@ fn test_update_shortcut_preserves_others() {
     settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
     let shortcuts = settings_service::get_keyboard_shortcuts(&conn).unwrap();
 
-    let search = shortcuts.iter().find(|s| s.action == "focus_search").unwrap();
-    assert_eq!(search.binding, "CommandOrControl+F", "Unmodified shortcuts should keep defaults");
+    let search = shortcuts
+        .iter()
+        .find(|s| s.action == "focus_search")
+        .unwrap();
+    assert_eq!(
+        search.binding, "CommandOrControl+F",
+        "Unmodified shortcuts should keep defaults"
+    );
 }
 
 #[test]
@@ -1330,10 +1343,16 @@ fn test_reset_shortcuts_to_defaults() {
     let reset = settings_service::reset_shortcuts(&conn).unwrap();
 
     let new_prompt = reset.iter().find(|s| s.action == "new_prompt").unwrap();
-    assert_eq!(new_prompt.binding, "CommandOrControl+N", "Should revert to default after reset");
+    assert_eq!(
+        new_prompt.binding, "CommandOrControl+N",
+        "Should revert to default after reset"
+    );
 
     let search = reset.iter().find(|s| s.action == "focus_search").unwrap();
-    assert_eq!(search.binding, "CommandOrControl+F", "Should revert to default after reset");
+    assert_eq!(
+        search.binding, "CommandOrControl+F",
+        "Should revert to default after reset"
+    );
 }
 
 #[test]
@@ -1353,5 +1372,9 @@ fn test_generic_settings_crud() {
     // Update the value
     settings_service::set_setting(&conn, "some_key", "new_value").unwrap();
     let val = settings_service::get_setting(&conn, "some_key").unwrap();
-    assert_eq!(val.as_deref(), Some("new_value"), "Setting should be updated via upsert");
+    assert_eq!(
+        val.as_deref(),
+        Some("new_value"),
+        "Setting should be updated via upsert"
+    );
 }
