@@ -118,6 +118,10 @@ pub fn create_tables(conn: &Connection) -> rusqlite::Result<()> {
             FOREIGN KEY (active_playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
         );
 
+        INSERT OR IGNORE INTO playbook_sessions
+            (id, active_playbook_id, current_step, started_at)
+        VALUES (1, NULL, 0, NULL);
+
         -- FTS mapping: stable rowid for each prompt_id
         CREATE TABLE IF NOT EXISTS fts_mapping (
             rowid       INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -37,7 +37,11 @@ fn show_search_window(app: tauri::AppHandle) {
 
 fn main() {
     // Initialize the database (creates dir + schema if needed).
-    let conn = db::init().expect("Failed to initialize database");
+    let mut conn = db::init().expect("Failed to initialize database");
+
+    // Migrations run exactly once on the main connection before seeding,
+    // opening the API connection, or loading any windows.
+    db::migrate(&mut conn).expect("Failed to migrate database");
 
     // Seed starter content on first launch (no-op if data already exists).
     if let Err(e) = seed::seed_if_empty(&conn) {
