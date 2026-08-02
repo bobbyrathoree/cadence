@@ -1,41 +1,57 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::error::{AppError, AppResult};
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::prompt::PromptListItem;
-use crate::services::tag_service;
+use crate::services::{tag_service, transaction};
 
-/// Create a new collection.
 pub fn create_collection(
+    conn: &mut Connection,
+    request: CreateCollectionRequest,
+) -> AppResult<Collection> {
+    transaction::immediate(conn, move |tx| create_collection_tx(tx, request))
+}
+
+pub(crate) fn create_collection_tx(
     conn: &Connection,
-    req: CreateCollectionRequest,
-) -> rusqlite::Result<Collection> {
+    request: CreateCollectionRequest,
+) -> AppResult<Collection> {
+    let CreateCollectionRequest {
+        name,
+        description,
+        icon,
+        color,
+        is_smart,
+        filter_query,
+    } = request;
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
     conn.execute(
-        "INSERT INTO collections (id, name, description, icon, color, is_smart, filter_query, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO collections
+            (id, name, description, icon, color, is_smart, filter_query, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             id,
-            req.name,
-            req.description,
-            req.icon,
-            req.color,
-            req.is_smart as i64,
-            req.filter_query,
-            now,
+            name,
+            description,
+            icon,
+            color,
+            is_smart as i64,
+            filter_query,
             now,
         ],
-    )?;
+    )
+    .map_err(AppError::from)?;
 
     Ok(Collection {
         id,
-        name: req.name,
-        description: req.description,
-        icon: req.icon,
-        color: req.color,
-        is_smart: req.is_smart,
-        filter_query: req.filter_query,
+        name,
+        description,
+        icon,
+        color,
+        is_smart,
+        filter_query,
         sort_field: None,
         sort_order: Some("asc".to_string()),
         created_at: Some(now.clone()),
@@ -44,7 +60,7 @@ pub fn create_collection(
 }
 
 /// List all collections.
-pub fn list_collections(conn: &Connection) -> rusqlite::Result<Vec<Collection>> {
+pub fn list_collections(conn: &Connection) -> AppResult<Vec<Collection>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, description, icon, color, is_smart, filter_query,
                 sort_field, sort_order, created_at, updated_at
@@ -82,7 +98,7 @@ pub fn get_collection_prompts(
     collection_id: &str,
     limit: i64,
     offset: i64,
-) -> rusqlite::Result<Vec<PromptListItem>> {
+) -> AppResult<Vec<PromptListItem>> {
     // First determine if this is a smart collection
     let (is_smart, filter_query): (bool, Option<String>) = conn.query_row(
         "SELECT is_smart, filter_query FROM collections WHERE id = ?1",
@@ -103,7 +119,7 @@ fn get_manual_collection_prompts(
     collection_id: &str,
     limit: i64,
     offset: i64,
-) -> rusqlite::Result<Vec<PromptListItem>> {
+) -> AppResult<Vec<PromptListItem>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.title, p.description, p.is_favorite, p.copy_count, p.last_copied_at,
                 COALESCE(SUBSTR(v.content, 1, 100), '') AS snippet,
@@ -176,7 +192,7 @@ fn get_smart_collection_prompts(
     filter_query: Option<&str>,
     limit: i64,
     offset: i64,
-) -> rusqlite::Result<Vec<PromptListItem>> {
+) -> AppResult<Vec<PromptListItem>> {
     let filter_query = match filter_query {
         Some(q) if !q.is_empty() => q,
         _ => {
@@ -186,13 +202,12 @@ fn get_smart_collection_prompts(
     };
 
     // Parse the JSON filter
-    let filter: serde_json::Value = serde_json::from_str(filter_query).map_err(|e| {
-        rusqlite::Error::InvalidParameterName(format!("Invalid filter_query JSON: {}", e))
-    })?;
+    let filter: serde_json::Value = serde_json::from_str(filter_query)
+        .map_err(|error| AppError::invalid(format!("Invalid filter_query JSON: {error}")))?;
 
-    let conditions = filter["conditions"].as_array().ok_or_else(|| {
-        rusqlite::Error::InvalidParameterName("filter_query missing 'conditions' array".into())
-    })?;
+    let conditions = filter["conditions"]
+        .as_array()
+        .ok_or_else(|| AppError::invalid("filter_query missing 'conditions' array"))?;
 
     let match_mode = filter["match"].as_str().unwrap_or("all");
     let joiner = if match_mode == "any" { " OR " } else { " AND " };
@@ -314,35 +329,104 @@ fn get_smart_collection_prompts(
     Ok(items)
 }
 
-/// Add a prompt to a manual collection at the next position.
 pub fn add_prompt_to_collection(
+    conn: &mut Connection,
+    collection_id: &str,
+    prompt_id: &str,
+) -> AppResult<()> {
+    transaction::immediate(conn, |tx| {
+        add_prompt_to_collection_tx(tx, collection_id, prompt_id)
+    })
+}
+
+pub(crate) fn add_prompt_to_collection_tx(
     conn: &Connection,
     collection_id: &str,
     prompt_id: &str,
-) -> rusqlite::Result<()> {
-    let max_position: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(position), -1) FROM collection_prompts WHERE collection_id = ?1",
-        params![collection_id],
-        |row| row.get(0),
-    )?;
+) -> AppResult<()> {
+    ensure_manual_collection(conn, collection_id)?;
+    ensure_active_prompt(conn, prompt_id)?;
+
+    let exists = conn
+        .query_row(
+            "SELECT 1 FROM collection_prompts
+             WHERE collection_id = ?1 AND prompt_id = ?2",
+            params![collection_id, prompt_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+    if exists.is_some() {
+        return Ok(());
+    }
+
+    let max_position: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM collection_prompts WHERE collection_id = ?1",
+            params![collection_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
 
     conn.execute(
-        "INSERT OR IGNORE INTO collection_prompts (collection_id, prompt_id, position) VALUES (?1, ?2, ?3)",
+        "INSERT INTO collection_prompts (collection_id, prompt_id, position)
+         VALUES (?1, ?2, ?3)",
         params![collection_id, prompt_id, max_position + 1],
-    )?;
+    )
+    .map_err(AppError::from)?;
 
     Ok(())
 }
 
-/// Remove a prompt from a collection.
 pub fn remove_prompt_from_collection(
+    conn: &mut Connection,
+    collection_id: &str,
+    prompt_id: &str,
+) -> AppResult<()> {
+    transaction::immediate(conn, |tx| {
+        remove_prompt_from_collection_tx(tx, collection_id, prompt_id)
+    })
+}
+
+pub(crate) fn remove_prompt_from_collection_tx(
     conn: &Connection,
     collection_id: &str,
     prompt_id: &str,
-) -> rusqlite::Result<()> {
+) -> AppResult<()> {
+    ensure_manual_collection(conn, collection_id)?;
+    ensure_active_prompt(conn, prompt_id)?;
+
+    // Removing an absent membership is intentionally idempotent.
     conn.execute(
         "DELETE FROM collection_prompts WHERE collection_id = ?1 AND prompt_id = ?2",
         params![collection_id, prompt_id],
-    )?;
+    )
+    .map_err(AppError::from)?;
     Ok(())
+}
+
+fn ensure_manual_collection(conn: &Connection, collection_id: &str) -> AppResult<()> {
+    let is_smart = conn
+        .query_row(
+            "SELECT is_smart FROM collections WHERE id = ?1",
+            params![collection_id],
+            |row| Ok(row.get::<_, i64>(0)? != 0),
+        )
+        .map_err(AppError::from)?;
+    if is_smart {
+        Err(AppError::invalid(
+            "Smart collection membership cannot be edited",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_active_prompt(conn: &Connection, prompt_id: &str) -> AppResult<()> {
+    conn.query_row(
+        "SELECT 1 FROM prompts WHERE id = ?1 AND deleted_at IS NULL",
+        params![prompt_id],
+        |_| Ok(()),
+    )
+    .map_err(AppError::from)
 }

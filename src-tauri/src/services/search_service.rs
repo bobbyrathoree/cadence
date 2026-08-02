@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 
+use crate::error::AppResult;
 use crate::models::prompt::PromptListItem;
 use crate::services::tag_service;
 
@@ -13,7 +14,7 @@ pub fn search_prompts(
     conn: &Connection,
     query: &str,
     limit: i64,
-) -> rusqlite::Result<Vec<PromptListItem>> {
+) -> AppResult<Vec<PromptListItem>> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }

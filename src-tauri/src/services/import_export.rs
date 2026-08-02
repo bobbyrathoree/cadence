@@ -1,8 +1,11 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AppError, AppResult};
 use crate::models::prompt::CreatePromptRequest;
-use crate::services::prompt_service;
+use crate::services::{prompt_service, transaction};
+
+const IMPORT_CHUNK_SIZE: usize = 50;
 
 // ------------------------------------------------------------------
 // Data types
@@ -58,7 +61,7 @@ pub struct ImportData {
 // ------------------------------------------------------------------
 
 /// Check whether a prompt with the same title AND similar content (first 200 chars) already exists.
-fn is_duplicate(conn: &Connection, title: &str, content: &str) -> bool {
+fn is_duplicate(conn: &Connection, title: &str, content: &str) -> AppResult<bool> {
     let content_prefix: String = content.chars().take(200).collect();
 
     let count: i64 = conn
@@ -69,81 +72,43 @@ fn is_duplicate(conn: &Connection, title: &str, content: &str) -> bool {
             params![title, content_prefix],
             |row| row.get(0),
         )
-        .unwrap_or(0);
+        .map_err(AppError::from)?;
 
-    count > 0
+    Ok(count > 0)
 }
 
 // ------------------------------------------------------------------
 // JSON import / export
 // ------------------------------------------------------------------
 
-/// Import prompts from a JSON string. Expects `ImportData` format (object with `prompts` array).
-pub fn import_json(conn: &Connection, json_str: &str) -> rusqlite::Result<ImportResult> {
-    let data: ImportData = serde_json::from_str(json_str)
-        .map_err(|e| rusqlite::Error::InvalidParameterName(format!("Invalid JSON: {}", e)))?;
+pub fn import_json(conn: &mut Connection, json_str: &str) -> AppResult<ImportResult> {
+    let data = serde_json::from_str::<ImportData>(json_str)
+        .map_err(|error| AppError::invalid(format!("Invalid JSON: {error}")))?;
+    let mut result = empty_import_result();
 
-    let mut result = ImportResult {
-        imported: 0,
-        skipped: 0,
-        errors: Vec::new(),
-    };
-
-    for (i, prompt_data) in data.prompts.into_iter().enumerate() {
-        // Deduplication check
-        if is_duplicate(conn, &prompt_data.title, &prompt_data.content) {
-            result.skipped += 1;
-            continue;
-        }
-
-        let req = CreatePromptRequest {
-            title: prompt_data.title.clone(),
-            description: prompt_data.description,
-            content: prompt_data.content,
-            variant_label: None,
-            tags: prompt_data.tags.unwrap_or_default(),
-            is_favorite: prompt_data.is_favorite.unwrap_or(false),
-        };
-
-        match prompt_service::create_prompt(conn, req) {
-            Ok(created) => {
-                // Add extra variants beyond the default one
-                if let Some(variants) = prompt_data.variants {
-                    for variant in variants {
-                        if let Err(e) = prompt_service::add_variant(
-                            conn,
-                            &created.prompt.id,
-                            &variant.label,
-                            &variant.content,
-                        ) {
-                            result.errors.push(format!(
-                                "Prompt #{} ({}): failed to add variant '{}': {}",
-                                i, prompt_data.title, variant.label, e
-                            ));
-                        }
-                    }
-                }
-                result.imported += 1;
+    for chunk in data.prompts.chunks(IMPORT_CHUNK_SIZE) {
+        let chunk_result = transaction::immediate(conn, |tx| {
+            let mut chunk_result = empty_import_result();
+            for prompt_data in chunk {
+                import_prompt_tx(tx, prompt_data, &mut chunk_result)?;
             }
-            Err(e) => {
-                result
-                    .errors
-                    .push(format!("Prompt #{} ({}): {}", i, prompt_data.title, e));
-            }
-        }
+            Ok(chunk_result)
+        })?;
+        merge_import_results(&mut result, chunk_result);
     }
-
     Ok(result)
 }
 
-/// Export all non-deleted prompts as a pretty-printed JSON string.
-pub fn export_json(conn: &Connection) -> rusqlite::Result<String> {
+pub fn export_json(conn: &Connection) -> AppResult<String> {
     // Get all non-deleted prompt IDs
-    let mut stmt =
-        conn.prepare("SELECT id FROM prompts WHERE deleted_at IS NULL ORDER BY updated_at DESC")?;
+    let mut stmt = conn
+        .prepare("SELECT id FROM prompts WHERE deleted_at IS NULL ORDER BY updated_at DESC")
+        .map_err(AppError::from)?;
     let ids: Vec<String> = stmt
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(AppError::from)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)?;
 
     let mut prompts = Vec::new();
     for id in ids {
@@ -185,9 +150,8 @@ pub fn export_json(conn: &Connection) -> rusqlite::Result<String> {
         prompts,
     };
 
-    serde_json::to_string_pretty(&export_data).map_err(|e| {
-        rusqlite::Error::InvalidParameterName(format!("JSON serialization error: {}", e))
-    })
+    serde_json::to_string_pretty(&export_data)
+        .map_err(|error| AppError::internal(format!("JSON serialization failed: {error}")))
 }
 
 // ------------------------------------------------------------------
@@ -282,10 +246,14 @@ fn parse_yaml_list(s: &str) -> Vec<String> {
 
 /// Import a single markdown file. Returns an ImportResult for that file.
 pub fn import_markdown(
-    conn: &Connection,
+    conn: &mut Connection,
     filename: &str,
     content: &str,
-) -> rusqlite::Result<ImportResult> {
+) -> AppResult<ImportResult> {
+    transaction::immediate(conn, |tx| import_markdown_tx(tx, filename, content))
+}
+
+fn import_markdown_tx(conn: &Connection, filename: &str, content: &str) -> AppResult<ImportResult> {
     let (title, tags, favorite, body) = parse_markdown_frontmatter(filename, content);
 
     let mut result = ImportResult {
@@ -300,7 +268,7 @@ pub fn import_markdown(
     }
 
     // Deduplication check
-    if is_duplicate(conn, &title, &body) {
+    if is_duplicate(conn, &title, &body)? {
         result.skipped += 1;
         return Ok(result);
     }
@@ -314,41 +282,68 @@ pub fn import_markdown(
         is_favorite: favorite,
     };
 
-    match prompt_service::create_prompt(conn, req) {
-        Ok(_) => {
-            result.imported += 1;
-        }
-        Err(e) => {
-            result.errors.push(format!("{}: {}", filename, e));
-        }
-    }
-
+    prompt_service::create_prompt_tx(conn, req)?;
+    result.imported += 1;
     Ok(result)
 }
 
 /// Import multiple markdown files. Aggregates results from each file.
 pub fn import_markdown_batch(
-    conn: &Connection,
+    conn: &mut Connection,
     files: Vec<(String, String)>,
-) -> rusqlite::Result<ImportResult> {
-    let mut aggregate = ImportResult {
+) -> AppResult<ImportResult> {
+    let mut aggregate = empty_import_result();
+    for chunk in files.chunks(IMPORT_CHUNK_SIZE) {
+        let chunk_result = transaction::immediate(conn, |tx| {
+            let mut result = empty_import_result();
+            for (filename, content) in chunk {
+                merge_import_results(&mut result, import_markdown_tx(tx, filename, content)?);
+            }
+            Ok(result)
+        })?;
+        merge_import_results(&mut aggregate, chunk_result);
+    }
+    Ok(aggregate)
+}
+
+fn import_prompt_tx(
+    conn: &Connection,
+    prompt_data: &ImportPromptData,
+    result: &mut ImportResult,
+) -> AppResult<()> {
+    if is_duplicate(conn, &prompt_data.title, &prompt_data.content)? {
+        result.skipped += 1;
+        return Ok(());
+    }
+
+    let created = prompt_service::create_prompt_tx(
+        conn,
+        CreatePromptRequest {
+            title: prompt_data.title.clone(),
+            description: prompt_data.description.clone(),
+            content: prompt_data.content.clone(),
+            variant_label: None,
+            tags: prompt_data.tags.clone().unwrap_or_default(),
+            is_favorite: prompt_data.is_favorite.unwrap_or(false),
+        },
+    )?;
+    for variant in prompt_data.variants.as_deref().unwrap_or_default() {
+        prompt_service::add_variant_tx(conn, &created.prompt.id, &variant.label, &variant.content)?;
+    }
+    result.imported += 1;
+    Ok(())
+}
+
+fn empty_import_result() -> ImportResult {
+    ImportResult {
         imported: 0,
         skipped: 0,
         errors: Vec::new(),
-    };
-
-    for (filename, content) in files {
-        match import_markdown(conn, &filename, &content) {
-            Ok(r) => {
-                aggregate.imported += r.imported;
-                aggregate.skipped += r.skipped;
-                aggregate.errors.extend(r.errors);
-            }
-            Err(e) => {
-                aggregate.errors.push(format!("{}: {}", filename, e));
-            }
-        }
     }
+}
 
-    Ok(aggregate)
+fn merge_import_results(target: &mut ImportResult, source: ImportResult) {
+    target.imported += source.imported;
+    target.skipped += source.skipped;
+    target.errors.extend(source.errors);
 }

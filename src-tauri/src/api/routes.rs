@@ -11,7 +11,7 @@ use std::sync::Arc;
 use super::server::ApiState;
 use crate::models::collection::CreateCollectionRequest;
 use crate::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
-use crate::models::tag::{CreateTagRequest, Tag};
+use crate::models::tag::CreateTagRequest;
 use crate::services::{
     collection_service, import_export, playbook_service, prompt_service, search_service,
     tag_service,
@@ -132,7 +132,10 @@ async fn list_prompts(
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         prompt_service::list_prompts(&conn, limit, offset).map_err(|e| e.to_string())
     })
     .await
@@ -150,8 +153,11 @@ async fn create_prompt(
     Json(req): Json<CreatePromptRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::create_prompt(&conn, req).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::create_prompt(&mut conn, req).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -168,7 +174,10 @@ async fn get_prompt(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         prompt_service::get_prompt_by_id(&conn, &id).map_err(|e| e.to_string())
     })
     .await
@@ -187,8 +196,11 @@ async fn update_prompt(
     Json(req): Json<UpdatePromptRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::update_prompt(&conn, &id, req).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::update_prompt(&mut conn, &id, req).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -205,8 +217,11 @@ async fn delete_prompt(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::delete_prompt(&conn, &id).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::delete_prompt(&mut conn, &id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -234,8 +249,12 @@ async fn add_variant(
     Json(req): Json<AddVariantRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::add_variant(&conn, &id, &req.label, &req.content).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::add_variant(&mut conn, &id, &req.label, &req.content)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -259,8 +278,11 @@ async fn update_variant(
     Json(req): Json<UpdateVariantRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::update_variant(&conn, &id, &req.content, req.label.as_deref())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::update_variant(&mut conn, &id, &req.content, req.label.as_deref())
             .map_err(|e| e.to_string())
     })
     .await
@@ -278,8 +300,11 @@ async fn delete_variant(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::delete_variant(&conn, &id).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::delete_variant(&mut conn, &id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -297,7 +322,10 @@ async fn delete_variant(
 
 async fn list_tags(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         tag_service::list_tags(&conn).map_err(|e| e.to_string())
     })
     .await
@@ -315,21 +343,11 @@ async fn create_tag(
     Json(req): Json<CreateTagRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let tag = tag_service::get_or_create_tag(&conn, &req.name).map_err(|e| e.to_string())?;
-        // If a color was provided, update the tag
-        if let Some(ref color) = req.color {
-            conn.execute(
-                "UPDATE tags SET color = ?1 WHERE id = ?2",
-                rusqlite::params![color, tag.id],
-            )
-            .map_err(|e| e.to_string())?;
-            return Ok(Tag {
-                color: Some(color.clone()),
-                ..tag
-            });
-        }
-        Ok(tag)
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        tag_service::create_or_update_tag(&mut conn, req).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -352,8 +370,11 @@ async fn add_tags_to_prompt(
     Json(req): Json<AddTagsRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        tag_service::add_tags_to_prompt(&conn, &id, &req.tags).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        tag_service::add_tags_to_prompt(&mut conn, &id, &req.tags).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -370,8 +391,12 @@ async fn remove_tag_from_prompt(
     Path((prompt_id, tag_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        tag_service::remove_tag_from_prompt(&conn, &prompt_id, &tag_id).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        tag_service::remove_tag_from_prompt(&mut conn, &prompt_id, &tag_id)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -389,7 +414,10 @@ async fn remove_tag_from_prompt(
 
 async fn list_collections(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         collection_service::list_collections(&conn).map_err(|e| e.to_string())
     })
     .await
@@ -407,8 +435,11 @@ async fn create_collection(
     Json(req): Json<CreateCollectionRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        collection_service::create_collection(&conn, req).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        collection_service::create_collection(&mut conn, req).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -425,7 +456,10 @@ async fn get_collection_prompts(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         collection_service::get_collection_prompts(&conn, &id, 100, 0).map_err(|e| e.to_string())
     })
     .await
@@ -449,8 +483,11 @@ async fn add_prompt_to_collection(
     Json(req): Json<AddPromptToCollectionRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        collection_service::add_prompt_to_collection(&conn, &id, &req.prompt_id)
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        collection_service::add_prompt_to_collection(&mut conn, &id, &req.prompt_id)
             .map_err(|e| e.to_string())
     })
     .await
@@ -481,7 +518,10 @@ async fn search(
     }
 
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         search_service::search_prompts(&conn, &params.q, 50).map_err(|e| e.to_string())
     })
     .await
@@ -514,8 +554,11 @@ async fn record_copy(
     Json(req): Json<RecordCopyRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        prompt_service::record_copy(&conn, &id, req.variant_id.as_deref())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        prompt_service::record_copy(&mut conn, &id, req.variant_id.as_deref())
             .map_err(|e| e.to_string())
     })
     .await
@@ -538,8 +581,11 @@ async fn import_prompts(
 ) -> impl IntoResponse {
     let json_str = serde_json::to_string(&req).unwrap_or_default();
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        import_export::import_json(&conn, &json_str).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        import_export::import_json(&mut conn, &json_str).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())
@@ -553,7 +599,10 @@ async fn import_prompts(
 
 async fn export_prompts(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         import_export::export_json(&conn).map_err(|e| e.to_string())
     })
     .await
@@ -578,7 +627,10 @@ async fn export_prompts(State(state): State<Arc<ApiState>>) -> impl IntoResponse
 
 async fn list_playbooks(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         playbook_service::list_playbooks(&conn).map_err(|e| e.to_string())
     })
     .await
@@ -602,8 +654,11 @@ async fn create_playbook_route(
     Json(req): Json<CreatePlaybookRequest>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        playbook_service::create_playbook(&conn, &req.title, req.description.as_deref())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        playbook_service::create_playbook(&mut conn, &req.title, req.description.as_deref())
             .map_err(|e| e.to_string())
     })
     .await
@@ -621,7 +676,10 @@ async fn get_playbook(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
         playbook_service::get_playbook(&conn, &id).map_err(|e| e.to_string())
     })
     .await
@@ -639,8 +697,11 @@ async fn delete_playbook(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        playbook_service::delete_playbook(&conn, &id).map_err(|e| e.to_string())
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database is unavailable".to_string())?;
+        playbook_service::delete_playbook(&mut conn, &id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())

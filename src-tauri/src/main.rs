@@ -44,7 +44,7 @@ fn main() {
     db::migrate(&mut conn).expect("Failed to migrate database");
 
     // Seed starter content on first launch (no-op if data already exists).
-    if let Err(e) = seed::seed_if_empty(&conn) {
+    if let Err(e) = seed::seed_if_empty(&mut conn) {
         eprintln!("Warning: failed to seed starter kit: {}", e);
     }
 

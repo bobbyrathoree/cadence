@@ -20,7 +20,7 @@ fn setup_db() -> rusqlite::Connection {
 
 /// Helper: create a prompt with sensible defaults and return the result.
 fn create_test_prompt(
-    conn: &rusqlite::Connection,
+    conn: &mut rusqlite::Connection,
     title: &str,
     content: &str,
     tags: Vec<String>,
@@ -43,11 +43,11 @@ fn create_test_prompt(
 
 #[test]
 fn test_prompt_crud() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // --- Create ---
     let created = create_test_prompt(
-        &conn,
+        &mut conn,
         "My Prompt",
         "Hello, world!",
         vec!["rust".to_string(), "testing".to_string()],
@@ -89,7 +89,7 @@ fn test_prompt_crud() {
         is_pinned: None,
         primary_variant_id: None,
     };
-    prompt_service::update_prompt(&conn, prompt_id, update_req).unwrap();
+    prompt_service::update_prompt(&mut conn, prompt_id, update_req).unwrap();
 
     let updated = prompt_service::get_prompt_by_id(&conn, prompt_id).unwrap();
     assert_eq!(
@@ -98,7 +98,7 @@ fn test_prompt_crud() {
     );
 
     // --- Soft delete ---
-    prompt_service::delete_prompt(&conn, prompt_id).unwrap();
+    prompt_service::delete_prompt(&mut conn, prompt_id).unwrap();
 
     let list_after_delete = prompt_service::list_prompts(&conn, 50, 0).unwrap();
     assert_eq!(
@@ -121,9 +121,15 @@ fn test_prompt_crud() {
 
 #[test]
 fn test_variant_operations() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let created = create_test_prompt(&conn, "Variant Prompt", "Default content", vec![], false);
+    let created = create_test_prompt(
+        &mut conn,
+        "Variant Prompt",
+        "Default content",
+        vec![],
+        false,
+    );
     let prompt_id = &created.prompt.id;
 
     // Should start with 1 variant (the default)
@@ -131,12 +137,13 @@ fn test_variant_operations() {
     assert_eq!(fetched.variants.len(), 1, "Should start with 1 variant");
 
     // --- Add second variant ---
-    let v2 =
-        prompt_service::add_variant(&conn, prompt_id, "Claude Opus", "Opus-tuned content").unwrap();
+    let v2 = prompt_service::add_variant(&mut conn, prompt_id, "Claude Opus", "Opus-tuned content")
+        .unwrap();
     assert_eq!(v2.label, "Claude Opus", "Second variant label should match");
 
     // --- Add third variant ---
-    let v3 = prompt_service::add_variant(&conn, prompt_id, "Concise", "Short and direct").unwrap();
+    let v3 =
+        prompt_service::add_variant(&mut conn, prompt_id, "Concise", "Short and direct").unwrap();
     assert_eq!(v3.label, "Concise", "Third variant label should match");
 
     // --- Verify all 3 variants ---
@@ -149,7 +156,7 @@ fn test_variant_operations() {
 
     // --- Update a variant ---
     prompt_service::update_variant(
-        &conn,
+        &mut conn,
         &v2.id,
         "Updated Opus content",
         Some("Claude Opus v2"),
@@ -167,7 +174,7 @@ fn test_variant_operations() {
     );
 
     // --- Soft delete a variant ---
-    prompt_service::delete_variant(&conn, &v3.id).unwrap();
+    prompt_service::delete_variant(&mut conn, &v3.id).unwrap();
     let fetched = prompt_service::get_prompt_by_id(&conn, prompt_id).unwrap();
     assert_eq!(
         fetched.variants.len(),
@@ -182,14 +189,14 @@ fn test_variant_operations() {
 
 #[test]
 fn test_prompt_cannot_adopt_foreign_primary_variant() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let first = create_test_prompt(&conn, "Prompt One", "Alpha", vec![], false);
-    let second = create_test_prompt(&conn, "Prompt Two", "Beta", vec![], false);
+    let first = create_test_prompt(&mut conn, "Prompt One", "Alpha", vec![], false);
+    let second = create_test_prompt(&mut conn, "Prompt Two", "Beta", vec![], false);
     let foreign_variant_id = second.variants[0].id.clone();
 
     let result = prompt_service::update_prompt(
-        &conn,
+        &mut conn,
         &first.prompt.id,
         UpdatePromptRequest {
             title: None,
@@ -208,13 +215,14 @@ fn test_prompt_cannot_adopt_foreign_primary_variant() {
 
 #[test]
 fn test_record_copy_rejects_foreign_variant_id() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let first = create_test_prompt(&conn, "Prompt One", "Alpha", vec![], false);
-    let second = create_test_prompt(&conn, "Prompt Two", "Beta", vec![], false);
+    let first = create_test_prompt(&mut conn, "Prompt One", "Alpha", vec![], false);
+    let second = create_test_prompt(&mut conn, "Prompt Two", "Beta", vec![], false);
     let foreign_variant_id = second.variants[0].id.clone();
 
-    let result = prompt_service::record_copy(&conn, &first.prompt.id, Some(&foreign_variant_id));
+    let result =
+        prompt_service::record_copy(&mut conn, &first.prompt.id, Some(&foreign_variant_id));
 
     assert!(
         result.is_err(),
@@ -224,15 +232,21 @@ fn test_record_copy_rejects_foreign_variant_id() {
 
 #[test]
 fn test_delete_primary_variant_promotes_next_active_variant() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let created = create_test_prompt(&conn, "Variant Prompt", "Default content", vec![], false);
+    let created = create_test_prompt(
+        &mut conn,
+        "Variant Prompt",
+        "Default content",
+        vec![],
+        false,
+    );
     let prompt_id = created.prompt.id.clone();
     let original_primary_id = created.prompt.primary_variant_id.clone().unwrap();
     let replacement =
-        prompt_service::add_variant(&conn, &prompt_id, "Fallback", "Fallback content").unwrap();
+        prompt_service::add_variant(&mut conn, &prompt_id, "Fallback", "Fallback content").unwrap();
 
-    prompt_service::delete_variant(&conn, &original_primary_id).unwrap();
+    prompt_service::delete_variant(&mut conn, &original_primary_id).unwrap();
 
     let fetched = prompt_service::get_prompt_by_id(&conn, &prompt_id).unwrap();
     assert_eq!(
@@ -249,9 +263,15 @@ fn test_delete_primary_variant_promotes_next_active_variant() {
 
 #[test]
 fn test_database_trigger_blocks_primary_variant_soft_delete() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let created = create_test_prompt(&conn, "Trigger Prompt", "Default content", vec![], false);
+    let created = create_test_prompt(
+        &mut conn,
+        "Trigger Prompt",
+        "Default content",
+        vec![],
+        false,
+    );
     let primary_variant_id = created.prompt.primary_variant_id.clone().unwrap();
 
     let result = conn.execute(
@@ -271,11 +291,11 @@ fn test_database_trigger_blocks_primary_variant_soft_delete() {
 
 #[test]
 fn test_favorites() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let p1 = create_test_prompt(&conn, "Prompt A", "Content A", vec![], true);
-    let _p2 = create_test_prompt(&conn, "Prompt B", "Content B", vec![], false);
-    let p3 = create_test_prompt(&conn, "Prompt C", "Content C", vec![], true);
+    let p1 = create_test_prompt(&mut conn, "Prompt A", "Content A", vec![], true);
+    let _p2 = create_test_prompt(&mut conn, "Prompt B", "Content B", vec![], false);
+    let p3 = create_test_prompt(&mut conn, "Prompt C", "Content C", vec![], true);
 
     let all = prompt_service::list_prompts(&conn, 50, 0).unwrap();
     assert_eq!(all.len(), 3, "Should have 3 prompts total");
@@ -300,25 +320,29 @@ fn test_favorites() {
 
 #[test]
 fn test_tag_operations() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // --- get_or_create_tag ---
-    let tag1 = tag_service::get_or_create_tag(&conn, "rust").unwrap();
+    let tag1 = tag_service::get_or_create_tag(&mut conn, "rust").unwrap();
     assert_eq!(tag1.name, "rust", "Tag name should be 'rust'");
 
     // --- Idempotency ---
-    let tag1_again = tag_service::get_or_create_tag(&conn, "rust").unwrap();
+    let tag1_again = tag_service::get_or_create_tag(&mut conn, "rust").unwrap();
     assert_eq!(
         tag1.id, tag1_again.id,
         "Creating same tag twice should return same ID"
     );
 
     // --- Add tags to prompt ---
-    let prompt = create_test_prompt(&conn, "Tagged Prompt", "Content here", vec![], false);
+    let prompt = create_test_prompt(&mut conn, "Tagged Prompt", "Content here", vec![], false);
     let prompt_id = &prompt.prompt.id;
 
-    tag_service::add_tags_to_prompt(&conn, prompt_id, &["alpha".to_string(), "beta".to_string()])
-        .unwrap();
+    tag_service::add_tags_to_prompt(
+        &mut conn,
+        prompt_id,
+        &["alpha".to_string(), "beta".to_string()],
+    )
+    .unwrap();
 
     // --- get_tags_for_prompt ---
     let tags = tag_service::get_tags_for_prompt(&conn, prompt_id).unwrap();
@@ -329,7 +353,7 @@ fn test_tag_operations() {
 
     // --- Remove a tag ---
     let alpha_tag = tags.iter().find(|t| t.name == "alpha").unwrap();
-    tag_service::remove_tag_from_prompt(&conn, prompt_id, &alpha_tag.id).unwrap();
+    tag_service::remove_tag_from_prompt(&mut conn, prompt_id, &alpha_tag.id).unwrap();
 
     let tags_after = tag_service::get_tags_for_prompt(&conn, prompt_id).unwrap();
     assert_eq!(tags_after.len(), 1, "Should have 1 tag after removal");
@@ -351,16 +375,16 @@ fn test_tag_operations() {
 
 #[test]
 fn test_collection_operations() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Create some prompts
-    let p1 = create_test_prompt(&conn, "Prompt 1", "Content 1", vec![], false);
-    let p2 = create_test_prompt(&conn, "Prompt 2", "Content 2", vec![], false);
-    let p3 = create_test_prompt(&conn, "Prompt 3", "Content 3", vec![], false);
+    let p1 = create_test_prompt(&mut conn, "Prompt 1", "Content 1", vec![], false);
+    let p2 = create_test_prompt(&mut conn, "Prompt 2", "Content 2", vec![], false);
+    let p3 = create_test_prompt(&mut conn, "Prompt 3", "Content 3", vec![], false);
 
     // --- Create collection ---
     let coll = collection_service::create_collection(
-        &conn,
+        &mut conn,
         CreateCollectionRequest {
             name: "My Collection".to_string(),
             description: Some("Test collection".to_string()),
@@ -374,9 +398,9 @@ fn test_collection_operations() {
     assert_eq!(coll.name, "My Collection", "Collection name should match");
 
     // --- Add prompts in order ---
-    collection_service::add_prompt_to_collection(&conn, &coll.id, &p1.prompt.id).unwrap();
-    collection_service::add_prompt_to_collection(&conn, &coll.id, &p2.prompt.id).unwrap();
-    collection_service::add_prompt_to_collection(&conn, &coll.id, &p3.prompt.id).unwrap();
+    collection_service::add_prompt_to_collection(&mut conn, &coll.id, &p1.prompt.id).unwrap();
+    collection_service::add_prompt_to_collection(&mut conn, &coll.id, &p2.prompt.id).unwrap();
+    collection_service::add_prompt_to_collection(&mut conn, &coll.id, &p3.prompt.id).unwrap();
 
     // --- Get collection prompts ---
     let items = collection_service::get_collection_prompts(&conn, &coll.id, 50, 0).unwrap();
@@ -396,7 +420,7 @@ fn test_collection_operations() {
     );
 
     // --- Remove a prompt ---
-    collection_service::remove_prompt_from_collection(&conn, &coll.id, &p2.prompt.id).unwrap();
+    collection_service::remove_prompt_from_collection(&mut conn, &coll.id, &p2.prompt.id).unwrap();
     let items_after = collection_service::get_collection_prompts(&conn, &coll.id, 50, 0).unwrap();
     assert_eq!(
         items_after.len(),
@@ -415,32 +439,32 @@ fn test_collection_operations() {
 
 #[test]
 fn test_smart_collections() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Create prompts with different tags
     let _claude1 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Claude Prompt 1",
         "For Claude",
         vec!["model:claude".to_string()],
         true,
     );
     let _claude2 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Claude Prompt 2",
         "Also for Claude",
         vec!["model:claude".to_string()],
         false,
     );
     let _gemini = create_test_prompt(
-        &conn,
+        &mut conn,
         "Gemini Prompt",
         "For Gemini",
         vec!["model:gemini".to_string()],
         false,
     );
     let _both = create_test_prompt(
-        &conn,
+        &mut conn,
         "Multi-model",
         "For both",
         vec!["model:claude".to_string(), "model:gemini".to_string()],
@@ -451,7 +475,7 @@ fn test_smart_collections() {
     let filter_claude =
         r#"{"conditions":[{"field":"tag","op":"includes","value":"model:claude"}],"match":"all"}"#;
     let claude_coll = collection_service::create_collection(
-        &conn,
+        &mut conn,
         CreateCollectionRequest {
             name: "Claude Prompts".to_string(),
             description: None,
@@ -475,7 +499,7 @@ fn test_smart_collections() {
     let filter_fav =
         r#"{"conditions":[{"field":"is_favorite","op":"eq","value":true}],"match":"all"}"#;
     let fav_coll = collection_service::create_collection(
-        &conn,
+        &mut conn,
         CreateCollectionRequest {
             name: "Favorites".to_string(),
             description: None,
@@ -505,24 +529,24 @@ fn test_smart_collections() {
 
 #[test]
 fn test_fts_search() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let _p1 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Quantum Computing Basics",
         "Explain the basics of quantum computing including qubits and superposition.",
         vec!["science".to_string()],
         false,
     );
     let _p2 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Rust Error Handling",
         "Write idiomatic Rust code with Result and Option types.",
         vec!["programming".to_string()],
         false,
     );
     let _p3 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Recipe Generator",
         "Generate a healthy dinner recipe with chicken and vegetables.",
         vec!["cooking".to_string()],
@@ -584,9 +608,9 @@ fn test_fts_search() {
 
 #[test]
 fn test_copy_tracking() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let created = create_test_prompt(&conn, "Copy Prompt", "Copy this content", vec![], false);
+    let created = create_test_prompt(&mut conn, "Copy Prompt", "Copy this content", vec![], false);
     let prompt_id = &created.prompt.id;
 
     // Verify initial state
@@ -598,7 +622,7 @@ fn test_copy_tracking() {
     );
 
     // --- Record first copy (no variant specified, uses primary) ---
-    let content = prompt_service::record_copy(&conn, prompt_id, None).unwrap();
+    let content = prompt_service::record_copy(&mut conn, prompt_id, None).unwrap();
     assert_eq!(
         content, "Copy this content",
         "Returned content should match the primary variant"
@@ -615,10 +639,11 @@ fn test_copy_tracking() {
     );
 
     // --- Add a variant and record copy with specific variant ---
-    let v2 = prompt_service::add_variant(&conn, prompt_id, "Alt Version", "Alternative content")
-        .unwrap();
+    let v2 =
+        prompt_service::add_variant(&mut conn, prompt_id, "Alt Version", "Alternative content")
+            .unwrap();
 
-    let content2 = prompt_service::record_copy(&conn, prompt_id, Some(&v2.id)).unwrap();
+    let content2 = prompt_service::record_copy(&mut conn, prompt_id, Some(&v2.id)).unwrap();
     assert_eq!(
         content2, "Alternative content",
         "Returned content should match the specified variant"
@@ -637,20 +662,33 @@ fn test_copy_tracking() {
 
 #[test]
 fn test_playbook_operations() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Create prompts to use as steps
-    let p1 = create_test_prompt(&conn, "Step 1 Prompt", "First step content", vec![], false);
-    let p2 = create_test_prompt(&conn, "Step 2 Prompt", "Second step content", vec![], false);
+    let p1 = create_test_prompt(
+        &mut conn,
+        "Step 1 Prompt",
+        "First step content",
+        vec![],
+        false,
+    );
+    let p2 = create_test_prompt(
+        &mut conn,
+        "Step 2 Prompt",
+        "Second step content",
+        vec![],
+        false,
+    );
 
     // --- Create playbook ---
     let playbook =
-        playbook_service::create_playbook(&conn, "My Playbook", Some("A test playbook")).unwrap();
+        playbook_service::create_playbook(&mut conn, "My Playbook", Some("A test playbook"))
+            .unwrap();
     assert_eq!(playbook.title, "My Playbook", "Playbook title should match");
 
     // --- Add 3 steps (2 single, 1 with instructions) ---
     let step1 = playbook_service::add_step(
-        &conn,
+        &mut conn,
         &playbook.id,
         Some(&p1.prompt.id),
         "single",
@@ -661,7 +699,7 @@ fn test_playbook_operations() {
     assert_eq!(step1.position, 0, "First step should be at position 0");
 
     let step2 = playbook_service::add_step(
-        &conn,
+        &mut conn,
         &playbook.id,
         Some(&p2.prompt.id),
         "single",
@@ -672,7 +710,7 @@ fn test_playbook_operations() {
     assert_eq!(step2.position, 1, "Second step should be at position 1");
 
     let step3 = playbook_service::add_step(
-        &conn,
+        &mut conn,
         &playbook.id,
         None,
         "instruction",
@@ -708,7 +746,7 @@ fn test_playbook_operations() {
     );
 
     // --- Remove a step and verify reordering ---
-    playbook_service::remove_step(&conn, &step2.id).unwrap();
+    playbook_service::remove_step(&mut conn, &step2.id).unwrap();
     let fetched = playbook_service::get_playbook(&conn, &playbook.id).unwrap();
     assert_eq!(fetched.steps.len(), 2, "Should have 2 steps after removal");
     assert_eq!(
@@ -721,7 +759,7 @@ fn test_playbook_operations() {
     );
 
     // --- Delete the playbook ---
-    playbook_service::delete_playbook(&conn, &playbook.id).unwrap();
+    playbook_service::delete_playbook(&mut conn, &playbook.id).unwrap();
     let result = playbook_service::get_playbook(&conn, &playbook.id);
     assert!(result.is_err(), "Deleted playbook should not be found");
 }
@@ -732,14 +770,14 @@ fn test_playbook_operations() {
 
 #[test]
 fn test_playbook_session() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Create a playbook with steps
-    let p1 = create_test_prompt(&conn, "Session Step 1", "Step 1", vec![], false);
-    let p2 = create_test_prompt(&conn, "Session Step 2", "Step 2", vec![], false);
-    let playbook = playbook_service::create_playbook(&conn, "Session Playbook", None).unwrap();
+    let p1 = create_test_prompt(&mut conn, "Session Step 1", "Step 1", vec![], false);
+    let p2 = create_test_prompt(&mut conn, "Session Step 2", "Step 2", vec![], false);
+    let playbook = playbook_service::create_playbook(&mut conn, "Session Playbook", None).unwrap();
     playbook_service::add_step(
-        &conn,
+        &mut conn,
         &playbook.id,
         Some(&p1.prompt.id),
         "single",
@@ -748,7 +786,7 @@ fn test_playbook_session() {
     )
     .unwrap();
     playbook_service::add_step(
-        &conn,
+        &mut conn,
         &playbook.id,
         Some(&p2.prompt.id),
         "single",
@@ -769,7 +807,7 @@ fn test_playbook_session() {
     );
 
     // --- Start session ---
-    let session = playbook_service::start_session(&conn, &playbook.id).unwrap();
+    let session = playbook_service::start_session(&mut conn, &playbook.id).unwrap();
     assert_eq!(
         session.active_playbook_id.as_deref(),
         Some(playbook.id.as_str()),
@@ -782,21 +820,21 @@ fn test_playbook_session() {
     assert!(session.started_at.is_some(), "started_at should be set");
 
     // --- Advance step ---
-    let session = playbook_service::advance_step(&conn).unwrap();
+    let session = playbook_service::advance_step(&mut conn).unwrap();
     assert_eq!(
         session.current_step, 1,
         "Current step should be 1 after first advance"
     );
 
     // --- Advance again ---
-    let session = playbook_service::advance_step(&conn).unwrap();
+    let session = playbook_service::advance_step(&mut conn).unwrap();
     assert_eq!(
         session.current_step, 2,
         "Current step should be 2 after second advance"
     );
 
     // --- End session ---
-    playbook_service::end_session(&conn).unwrap();
+    playbook_service::end_session(&mut conn).unwrap();
     let session = playbook_service::get_session(&conn).unwrap();
     assert!(
         session.active_playbook_id.is_none(),
@@ -818,7 +856,7 @@ fn test_playbook_session() {
 
 #[test]
 fn test_import_json() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let json = r#"{
         "prompts": [
@@ -845,7 +883,7 @@ fn test_import_json() {
     }"#;
 
     // --- First import ---
-    let result = import_export::import_json(&conn, json).unwrap();
+    let result = import_export::import_json(&mut conn, json).unwrap();
     assert_eq!(result.imported, 3, "Should import 3 prompts");
     assert_eq!(result.skipped, 0, "Should skip 0 prompts on first import");
     assert!(
@@ -869,7 +907,7 @@ fn test_import_json() {
     );
 
     // --- Second import (deduplication) ---
-    let result2 = import_export::import_json(&conn, json).unwrap();
+    let result2 = import_export::import_json(&mut conn, json).unwrap();
     assert_eq!(
         result2.imported, 0,
         "Should import 0 on second run (all duplicates)"
@@ -891,7 +929,7 @@ fn test_import_json() {
 
 #[test]
 fn test_import_markdown() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let markdown = r#"---
 title: My Markdown Prompt
@@ -900,7 +938,7 @@ favorite: true
 ---
 Write a compelling story about a robot discovering emotions."#;
 
-    let result = import_export::import_markdown(&conn, "prompt.md", markdown).unwrap();
+    let result = import_export::import_markdown(&mut conn, "prompt.md", markdown).unwrap();
     assert_eq!(result.imported, 1, "Should import 1 prompt from markdown");
     assert_eq!(result.skipped, 0, "Should skip 0");
 
@@ -936,20 +974,21 @@ Write a compelling story about a robot discovering emotions."#;
 
 #[test]
 fn test_export_json() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Create prompts with variants and tags
     let p1 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Export Prompt 1",
         "Content 1",
         vec!["tag-a".to_string()],
         true,
     );
-    prompt_service::add_variant(&conn, &p1.prompt.id, "Extra V", "Extra variant content").unwrap();
+    prompt_service::add_variant(&mut conn, &p1.prompt.id, "Extra V", "Extra variant content")
+        .unwrap();
 
     let _p2 = create_test_prompt(
-        &conn,
+        &mut conn,
         "Export Prompt 2",
         "Content 2",
         vec!["tag-b".to_string(), "tag-c".to_string()],
@@ -993,7 +1032,7 @@ fn test_export_json() {
     assert_eq!(ep2.variants.len(), 0, "Second prompt has no extra variants");
 
     // --- Soft-deleted prompts should not appear in export ---
-    prompt_service::delete_prompt(&conn, &p1.prompt.id).unwrap();
+    prompt_service::delete_prompt(&mut conn, &p1.prompt.id).unwrap();
     let json_str2 = import_export::export_json(&conn).unwrap();
     let export2: import_export::ExportData = serde_json::from_str(&json_str2).unwrap();
     assert_eq!(
@@ -1036,12 +1075,12 @@ fn test_api_auth_state_structure() {
 
 #[test]
 fn test_list_prompts_pagination() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Create 5 prompts
     for i in 0..5 {
         create_test_prompt(
-            &conn,
+            &mut conn,
             &format!("Prompt {}", i),
             &format!("Content {}", i),
             vec![],
@@ -1080,16 +1119,16 @@ fn test_list_prompts_pagination() {
 
 #[test]
 fn test_update_prompt_favorite_toggle() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let created = create_test_prompt(&conn, "Toggle Prompt", "Content", vec![], false);
+    let created = create_test_prompt(&mut conn, "Toggle Prompt", "Content", vec![], false);
     let prompt_id = &created.prompt.id;
 
     assert!(!created.prompt.is_favorite, "Should start as not favorite");
 
     // Toggle on
     prompt_service::update_prompt(
-        &conn,
+        &mut conn,
         prompt_id,
         UpdatePromptRequest {
             title: None,
@@ -1108,7 +1147,7 @@ fn test_update_prompt_favorite_toggle() {
 
     // Toggle off
     prompt_service::update_prompt(
-        &conn,
+        &mut conn,
         prompt_id,
         UpdatePromptRequest {
             title: None,
@@ -1128,10 +1167,10 @@ fn test_update_prompt_favorite_toggle() {
 
 #[test]
 fn test_list_collections() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let _c1 = collection_service::create_collection(
-        &conn,
+        &mut conn,
         CreateCollectionRequest {
             name: "Alpha Collection".to_string(),
             description: None,
@@ -1144,7 +1183,7 @@ fn test_list_collections() {
     .unwrap();
 
     let _c2 = collection_service::create_collection(
-        &conn,
+        &mut conn,
         CreateCollectionRequest {
             name: "Beta Collection".to_string(),
             description: Some("A beta coll".to_string()),
@@ -1172,17 +1211,18 @@ fn test_list_collections() {
 
 #[test]
 fn test_playbook_list_and_update() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    let pb1 = playbook_service::create_playbook(&conn, "Playbook A", None).unwrap();
+    let pb1 = playbook_service::create_playbook(&mut conn, "Playbook A", None).unwrap();
     let _pb2 =
-        playbook_service::create_playbook(&conn, "Playbook B", Some("Description B")).unwrap();
+        playbook_service::create_playbook(&mut conn, "Playbook B", Some("Description B")).unwrap();
 
     let list = playbook_service::list_playbooks(&conn).unwrap();
     assert_eq!(list.len(), 2, "Should list 2 playbooks");
 
     // Update playbook title
-    playbook_service::update_playbook(&conn, &pb1.id, Some("Updated Playbook A"), None).unwrap();
+    playbook_service::update_playbook(&mut conn, &pb1.id, Some("Updated Playbook A"), None)
+        .unwrap();
     let fetched = playbook_service::get_playbook(&conn, &pb1.id).unwrap();
     assert_eq!(
         fetched.playbook.title, "Updated Playbook A",
@@ -1192,11 +1232,11 @@ fn test_playbook_list_and_update() {
 
 #[test]
 fn test_markdown_import_without_frontmatter() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let markdown = "This is plain markdown content without any frontmatter.";
 
-    let result = import_export::import_markdown(&conn, "plain-prompt.md", markdown).unwrap();
+    let result = import_export::import_markdown(&mut conn, "plain-prompt.md", markdown).unwrap();
     assert_eq!(result.imported, 1, "Should import 1 prompt");
 
     let list = prompt_service::list_prompts(&conn, 50, 0).unwrap();
@@ -1209,7 +1249,7 @@ fn test_markdown_import_without_frontmatter() {
 
 #[test]
 fn test_import_json_with_empty_content() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Import a prompt with tags but ensure the system handles it
     let json = r#"{
@@ -1222,7 +1262,7 @@ fn test_import_json_with_empty_content() {
         ]
     }"#;
 
-    let result = import_export::import_json(&conn, json).unwrap();
+    let result = import_export::import_json(&mut conn, json).unwrap();
     assert_eq!(result.imported, 1, "Should import 1 prompt");
 
     let list = prompt_service::list_prompts(&conn, 50, 0).unwrap();
@@ -1232,10 +1272,10 @@ fn test_import_json_with_empty_content() {
 
 #[test]
 fn test_search_after_update() {
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let created = create_test_prompt(
-        &conn,
+        &mut conn,
         "Original Title",
         "Original content about elephants",
         vec![],
@@ -1249,7 +1289,7 @@ fn test_search_after_update() {
 
     // Update title
     prompt_service::update_prompt(
-        &conn,
+        &mut conn,
         prompt_id,
         UpdatePromptRequest {
             title: Some("Updated About Giraffes".to_string()),
@@ -1294,10 +1334,11 @@ fn test_get_default_shortcuts() {
 #[test]
 fn test_update_shortcut_persists() {
     // Updating a shortcut should persist and be returned on next get
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     let updated =
-        settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+        settings_service::update_shortcut(&mut conn, "new_prompt", "CommandOrControl+Shift+N")
+            .unwrap();
     let new_prompt = updated.iter().find(|s| s.action == "new_prompt").unwrap();
     assert_eq!(
         new_prompt.binding, "CommandOrControl+Shift+N",
@@ -1317,9 +1358,9 @@ fn test_update_shortcut_persists() {
 #[test]
 fn test_update_shortcut_preserves_others() {
     // Updating one shortcut should not affect other shortcuts
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+    settings_service::update_shortcut(&mut conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
     let shortcuts = settings_service::get_keyboard_shortcuts(&conn).unwrap();
 
     let search = shortcuts
@@ -1335,12 +1376,13 @@ fn test_update_shortcut_preserves_others() {
 #[test]
 fn test_reset_shortcuts_to_defaults() {
     // After modifying shortcuts, reset should restore all defaults
-    let conn = setup_db();
+    let mut conn = setup_db();
 
-    settings_service::update_shortcut(&conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
-    settings_service::update_shortcut(&conn, "focus_search", "CommandOrControl+Shift+F").unwrap();
+    settings_service::update_shortcut(&mut conn, "new_prompt", "CommandOrControl+Shift+N").unwrap();
+    settings_service::update_shortcut(&mut conn, "focus_search", "CommandOrControl+Shift+F")
+        .unwrap();
 
-    let reset = settings_service::reset_shortcuts(&conn).unwrap();
+    let reset = settings_service::reset_shortcuts(&mut conn).unwrap();
 
     let new_prompt = reset.iter().find(|s| s.action == "new_prompt").unwrap();
     assert_eq!(
@@ -1358,19 +1400,19 @@ fn test_reset_shortcuts_to_defaults() {
 #[test]
 fn test_generic_settings_crud() {
     // Test the generic get_setting / set_setting functions
-    let conn = setup_db();
+    let mut conn = setup_db();
 
     // Initially empty
     let val = settings_service::get_setting(&conn, "some_key").unwrap();
     assert!(val.is_none(), "Setting should not exist initially");
 
     // Set a value
-    settings_service::set_setting(&conn, "some_key", "some_value").unwrap();
+    settings_service::set_setting(&mut conn, "some_key", "some_value").unwrap();
     let val = settings_service::get_setting(&conn, "some_key").unwrap();
     assert_eq!(val.as_deref(), Some("some_value"));
 
     // Update the value
-    settings_service::set_setting(&conn, "some_key", "new_value").unwrap();
+    settings_service::set_setting(&mut conn, "some_key", "new_value").unwrap();
     let val = settings_service::get_setting(&conn, "some_key").unwrap();
     assert_eq!(
         val.as_deref(),

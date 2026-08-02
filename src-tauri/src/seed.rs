@@ -1,26 +1,24 @@
 use rusqlite::Connection;
 
+use crate::error::AppResult;
 use crate::models::prompt::CreatePromptRequest;
-use crate::services::{playbook_service, prompt_service};
+use crate::services::{playbook_service, prompt_service, settings_service, transaction};
 
-/// Check if the database is empty and seed starter content on first launch.
-pub fn seed_if_empty(conn: &Connection) -> rusqlite::Result<()> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM prompts WHERE deleted_at IS NULL",
-        [],
-        |r| r.get(0),
-    )?;
-    if count > 0 {
-        return Ok(());
-    }
+const SEEDED_AT_KEY: &str = "seeded_at";
 
-    seed_starter_kit(conn)?;
-    Ok(())
+pub fn seed_if_empty(conn: &mut Connection) -> AppResult<()> {
+    transaction::immediate(conn, |tx| {
+        if settings_service::get_setting(tx, SEEDED_AT_KEY)?.is_some() {
+            return Ok(());
+        }
+        seed_starter_kit_tx(tx)?;
+        settings_service::set_setting_tx(tx, SEEDED_AT_KEY, &chrono::Utc::now().to_rfc3339())
+    })
 }
 
-fn seed_starter_kit(conn: &Connection) -> rusqlite::Result<()> {
+fn seed_starter_kit_tx(conn: &Connection) -> AppResult<()> {
     // --- Prompt 1: Code Review Assistant ---
-    let _code_review = prompt_service::create_prompt(
+    let _code_review = prompt_service::create_prompt_tx(
         conn,
         CreatePromptRequest {
             title: "Code Review Assistant".to_string(),
@@ -50,7 +48,7 @@ For each issue, explain *why* it matters and suggest a concrete fix. Distinguish
     )?;
 
     // --- Prompt 2: Project Memory Primer ---
-    let project_memory = prompt_service::create_prompt(
+    let project_memory = prompt_service::create_prompt_tx(
         conn,
         CreatePromptRequest {
             title: "Project Memory Primer".to_string(),
@@ -92,7 +90,7 @@ Use this context to inform all responses. Ask clarifying questions if my request
     )?;
 
     // --- Prompt 3: Session Operating Prompt (with two variants) ---
-    let session_op = prompt_service::create_prompt(
+    let session_op = prompt_service::create_prompt_tx(
         conn,
         CreatePromptRequest {
             title: "Session Operating Prompt".to_string(),
@@ -125,7 +123,7 @@ Operating rules:
     )?;
 
     // Add the Solo variant
-    prompt_service::add_variant(
+    prompt_service::add_variant_tx(
         conn,
         &session_op.prompt.id,
         "Solo",
@@ -148,7 +146,7 @@ Operating rules:
     )?;
 
     // --- Prompt 4: Founder Mode ---
-    let founder_mode = prompt_service::create_prompt(
+    let founder_mode = prompt_service::create_prompt_tx(
         conn,
         CreatePromptRequest {
             title: "Founder Mode".to_string(),
@@ -180,7 +178,7 @@ Don't be precious about what's already built. Sunk cost is not a reason to keep 
     )?;
 
     // --- Prompt 5: Session Knowledge Transfer ---
-    let knowledge_transfer = prompt_service::create_prompt(
+    let knowledge_transfer = prompt_service::create_prompt_tx(
         conn,
         CreatePromptRequest {
             title: "Session Knowledge Transfer".to_string(),
@@ -224,7 +222,7 @@ Keep it concise. This is a handoff document, not a narrative. Optimize for someo
     )?;
 
     // --- Prompt 6: Welcome to Cadence ---
-    let _welcome = prompt_service::create_prompt(
+    let _welcome = prompt_service::create_prompt_tx(
         conn,
         CreatePromptRequest {
             title: "Welcome to Cadence".to_string(),
@@ -261,14 +259,14 @@ Start by exploring the starter prompts, then edit them to match your projects. D
     )?;
 
     // --- Starter Playbook: AI Dev Session Workflow ---
-    let playbook = playbook_service::create_playbook(
+    let playbook = playbook_service::create_playbook_tx(
         conn,
         "AI Dev Session Workflow",
         Some("A complete AI-assisted development session from orientation to knowledge capture"),
     )?;
 
     // Step 1: Project Memory Primer
-    playbook_service::add_step(
+    playbook_service::add_step_tx(
         conn,
         &playbook.id,
         Some(&project_memory.prompt.id),
@@ -278,7 +276,7 @@ Start by exploring the starter prompts, then edit them to match your projects. D
     )?;
 
     // Step 2: Session Operating Prompt
-    playbook_service::add_step(
+    playbook_service::add_step_tx(
         conn,
         &playbook.id,
         Some(&session_op.prompt.id),
@@ -288,7 +286,7 @@ Start by exploring the starter prompts, then edit them to match your projects. D
     )?;
 
     // Step 3: Founder Mode (any mode prompt)
-    playbook_service::add_step(
+    playbook_service::add_step_tx(
         conn,
         &playbook.id,
         Some(&founder_mode.prompt.id),
@@ -298,7 +296,7 @@ Start by exploring the starter prompts, then edit them to match your projects. D
     )?;
 
     // Step 4: Session Knowledge Transfer
-    playbook_service::add_step(
+    playbook_service::add_step_tx(
         conn,
         &playbook.id,
         Some(&knowledge_transfer.prompt.id),
