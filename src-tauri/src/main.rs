@@ -2,6 +2,7 @@
 
 mod tray;
 
+use std::process::Command;
 use std::sync::Mutex;
 
 use tauri::{Emitter, Manager};
@@ -9,7 +10,10 @@ use tauri::{Emitter, Manager};
 use cadence_lib::api::lifecycle::ApiLifecycle;
 use cadence_lib::commands;
 use cadence_lib::db;
-use cadence_lib::search_window::{search_window, Mode as SearchWindowMode};
+use cadence_lib::models::settings::{DEFAULT_GLOBAL_SEARCH_SHORTCUT, GLOBAL_SEARCH_ACTION};
+use cadence_lib::search_window::{
+    register_search_shortcut, search_window, Mode as SearchWindowMode,
+};
 use cadence_lib::seed;
 use cadence_lib::state::AppState;
 
@@ -26,12 +30,20 @@ fn show_search_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn main() {
+    if let Err(error) = run() {
+        eprintln!("Cadence failed to start: {error}");
+        show_fatal_startup_dialog(&error);
+    }
+}
+
+fn run() -> Result<(), String> {
     // Initialize the database (creates dir + schema if needed).
-    let mut conn = db::init().expect("Failed to initialize database");
+    let mut conn = db::init()?;
 
     // Migrations run exactly once on the main connection before seeding,
     // opening the API connection, or loading any windows.
-    db::migrate(&mut conn).expect("Failed to migrate database");
+    db::migrate(&mut conn)
+        .map_err(|error| format!("Cadence could not migrate its database: {error:?}"))?;
 
     // Seed starter content on first launch (no-op if data already exists).
     if let Err(e) = seed::seed_if_empty(&mut conn) {
@@ -40,7 +52,7 @@ fn main() {
 
     let app_state = AppState {
         db: Mutex::new(conn),
-        api: tokio::sync::Mutex::new(ApiLifecycle::for_application()),
+        api: tokio::sync::Mutex::new(ApiLifecycle::for_application()?),
     };
 
     let app = tauri::Builder::default()
@@ -107,42 +119,44 @@ fn main() {
             // Register global shortcut dynamically from saved settings
             {
                 use cadence_lib::services::settings_service;
-                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
                 let shortcut_binding = {
                     let state = app.state::<AppState>();
-                    let conn = state
-                        .db
-                        .lock()
-                        .expect("Failed to lock DB for shortcut init");
-                    let shortcuts =
-                        settings_service::get_keyboard_shortcuts(&conn).unwrap_or_default();
-                    shortcuts
-                        .iter()
-                        .find(|s| s.action == "global_toggle_search")
-                        .map(|s| s.binding.clone())
-                        .unwrap_or_else(|| "CommandOrControl+Shift+P".to_string())
+                    let resolved = match state.db.lock() {
+                        Ok(conn) => match settings_service::get_keyboard_shortcuts(&conn) {
+                            Ok(shortcuts) => shortcuts
+                                .iter()
+                                .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
+                                .map(|shortcut| shortcut.binding.clone())
+                                .unwrap_or_else(|| DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()),
+                            Err(error) => {
+                                eprintln!(
+                                    "Warning: failed to read global shortcut setting: {error:?}"
+                                );
+                                DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()
+                            }
+                        },
+                        Err(_) => {
+                            eprintln!(
+                                "Warning: database lock unavailable during shortcut registration"
+                            );
+                            DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()
+                        }
+                    };
+                    resolved
                 };
 
-                let handle_for_shortcut = handle.clone();
-
-                app.global_shortcut()
-                    .on_shortcut(shortcut_binding.as_str(), move |_app, _shortcut, event| {
-                        if event.state == ShortcutState::Pressed {
-                            if let Err(error) =
-                                search_window(&handle_for_shortcut, SearchWindowMode::Toggle)
-                            {
-                                eprintln!("Failed to toggle search window: {error}");
-                            }
-                        }
-                    })
-                    .expect("Failed to register global shortcut");
+                if let Err(error) = register_search_shortcut(&handle, &shortcut_binding) {
+                    eprintln!(
+                        "Warning: failed to register global shortcut '{shortcut_binding}': {error}"
+                    );
+                }
             }
 
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building tauri application");
+        .map_err(|error| format!("Cadence could not build its application runtime: {error}"))?;
 
     app.run(|app_handle, event| {
         if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
@@ -152,4 +166,22 @@ fn main() {
             });
         }
     });
+    Ok(())
+}
+
+fn show_fatal_startup_dialog(message: &str) {
+    let result = Command::new("osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "display alert \"Cadence could not start\" message (item 1 of argv) as critical",
+            "-e",
+            "end run",
+        ])
+        .arg(message)
+        .status();
+    if let Err(error) = result {
+        eprintln!("Failed to show startup error dialog: {error}");
+    }
 }

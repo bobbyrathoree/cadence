@@ -1,4 +1,5 @@
 use tauri::Emitter;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::api::lifecycle::ApiStatus;
 use crate::models::collection::{Collection, CreateCollectionRequest};
@@ -6,9 +7,13 @@ use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookW
 use crate::models::prompt::{
     CreatePromptRequest, PromptListItem, PromptWithVariants, UpdatePromptRequest, Variant,
 };
-use crate::models::settings::KeyboardShortcut;
+use crate::models::settings::{
+    KeyboardShortcut, DEFAULT_GLOBAL_SEARCH_SHORTCUT, GLOBAL_SEARCH_ACTION,
+};
 use crate::models::tag::{CreateTagRequest, Tag};
-use crate::search_window::{search_window, Mode as SearchWindowMode};
+use crate::search_window::{
+    register_search_shortcut, register_shortcut_and_persist, reregister_shortcut,
+};
 use crate::services::import_export::ImportResult;
 use crate::services::{
     collection_service, import_export, playbook_service, prompt_service, search_service,
@@ -474,6 +479,29 @@ pub fn get_keyboard_shortcuts(
     settings_service::get_keyboard_shortcuts(&conn).map_err(|e| e.to_string())
 }
 
+fn persist_global_shortcut_change<T, Persist>(
+    app: &tauri::AppHandle,
+    current: &str,
+    replacement: &str,
+    persist: Persist,
+) -> Result<T, String>
+where
+    Persist: FnOnce() -> Result<T, String>,
+{
+    let register = |candidate: &str| register_search_shortcut(app, candidate);
+    let unregister = |candidate: &str| {
+        app.global_shortcut()
+            .unregister(candidate)
+            .map_err(|error| error.to_string())
+    };
+
+    if current == replacement && !app.global_shortcut().is_registered(current) {
+        register_shortcut_and_persist(replacement, register, unregister, persist)
+    } else {
+        reregister_shortcut(current, replacement, register, unregister, persist)
+    }
+}
+
 #[tauri::command]
 pub fn update_keyboard_shortcut(
     action: String,
@@ -486,63 +514,19 @@ pub fn update_keyboard_shortcut(
         .lock()
         .map_err(|_| "Database is unavailable".to_string())?;
 
-    // If updating the global shortcut, handle re-registration
-    if action == "global_toggle_search" {
-        // Get old binding first
+    if action == GLOBAL_SEARCH_ACTION {
         let old_shortcuts =
             settings_service::get_keyboard_shortcuts(&conn).map_err(|e| e.to_string())?;
         let old_binding = old_shortcuts
             .iter()
-            .find(|s| s.action == "global_toggle_search")
-            .map(|s| s.binding.clone());
+            .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
+            .map(|shortcut| shortcut.binding.clone())
+            .ok_or_else(|| "Global search shortcut is unavailable".to_string())?;
 
-        // Update in DB
-        let result = settings_service::update_shortcut(&mut conn, &action, &binding)
-            .map_err(|e| e.to_string())?;
-
-        // Re-register global shortcut
-        use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-
-        // Unregister old
-        if let Some(ref old) = old_binding {
-            let _ = app.global_shortcut().unregister(old.as_str());
-        }
-
-        // Register new
-        let handle = app.clone();
-        let register_result =
-            app.global_shortcut()
-                .on_shortcut(binding.as_str(), move |_app, _shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        if let Err(error) = search_window(&handle, SearchWindowMode::Toggle) {
-                            eprintln!("Failed to toggle search window: {error}");
-                        }
-                    }
-                });
-
-        // If registration failed, rollback: re-register old and revert DB
-        if let Err(e) = register_result {
-            if let Some(ref old) = old_binding {
-                let rollback_handle = app.clone();
-                let _ = app.global_shortcut().on_shortcut(
-                    old.as_str(),
-                    move |_app, _shortcut, event| {
-                        if event.state == ShortcutState::Pressed {
-                            if let Err(error) =
-                                search_window(&rollback_handle, SearchWindowMode::Toggle)
-                            {
-                                eprintln!("Failed to toggle search window: {error}");
-                            }
-                        }
-                    },
-                );
-                let _ = settings_service::update_shortcut(&mut conn, &action, old);
-            }
-            return Err(format!(
-                "Failed to register shortcut '{}': {}. Reverted to previous binding.",
-                binding, e
-            ));
-        }
+        let result = persist_global_shortcut_change(&app, &old_binding, &binding, || {
+            settings_service::update_shortcut(&mut conn, &action, &binding)
+                .map_err(|error| error.to_string())
+        })?;
 
         let _ = app.emit("shortcuts-changed", ());
         let _ = app.emit("db-changed", ());
@@ -565,23 +549,18 @@ pub fn reset_keyboard_shortcuts(
         .db
         .lock()
         .map_err(|_| "Database is unavailable".to_string())?;
-    let result = settings_service::reset_shortcuts(&mut conn).map_err(|e| e.to_string())?;
+    let old_shortcuts =
+        settings_service::get_keyboard_shortcuts(&conn).map_err(|error| error.to_string())?;
+    let old_binding = old_shortcuts
+        .iter()
+        .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
+        .map(|shortcut| shortcut.binding.clone())
+        .ok_or_else(|| "Global search shortcut is unavailable".to_string())?;
 
-    // Re-register the default global shortcut
-    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-    let _ = app.global_shortcut().unregister_all();
-
-    let handle = app.clone();
-    let _ = app.global_shortcut().on_shortcut(
-        "CommandOrControl+Shift+P",
-        move |_app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                if let Err(error) = search_window(&handle, SearchWindowMode::Toggle) {
-                    eprintln!("Failed to toggle search window: {error}");
-                }
-            }
-        },
-    );
+    let result =
+        persist_global_shortcut_change(&app, &old_binding, DEFAULT_GLOBAL_SEARCH_SHORTCUT, || {
+            settings_service::reset_shortcuts(&mut conn).map_err(|error| error.to_string())
+        })?;
 
     let _ = app.emit("shortcuts-changed", ());
     let _ = app.emit("db-changed", ());

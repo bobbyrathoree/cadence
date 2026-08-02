@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api } from '../../lib/api';
 import { useAppContext } from '../../lib/context';
 import { usePlaybookSession } from '../../lib/hooks';
 import type { PlaybookWithSteps } from '../../lib/types';
 import { PlaybookStep } from './PlaybookStep';
-import type { StepStatus } from './PlaybookStep';
+import type { PlaybookCopyTarget, StepStatus } from './PlaybookStep';
 
 interface Props {
   playbookId: string;
@@ -64,9 +65,10 @@ export function PlaybookStepper({ playbookId }: Props) {
   }, []);
 
   const handleCopyAndAdvance = useCallback(
-    async (content: string) => {
+    async ({ promptId, variantId, content }: PlaybookCopyTarget) => {
       try {
-        await navigator.clipboard.writeText(content);
+        await writeText(content);
+        await api.prompts.recordCopy(promptId, variantId);
         if (isSessionActive) {
           await api.session.advance();
         }

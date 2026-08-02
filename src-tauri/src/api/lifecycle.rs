@@ -54,8 +54,12 @@ impl ApiLifecycle {
         }
     }
 
-    pub fn for_application() -> Self {
-        Self::new(db::database_file(), db::db_path().join("api.json"))
+    pub fn for_application() -> Result<Self, String> {
+        let database_dir = db::db_path()?;
+        Ok(Self::new(
+            database_dir.join("cadence.db"),
+            database_dir.join("api.json"),
+        ))
     }
 
     pub fn status(&self) -> ApiStatus {

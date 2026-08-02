@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { getPrimaryVariant } from '../../lib/prompt';
 import type { PlaybookStepWithPrompt } from '../../lib/types';
 
 export type StepStatus = 'completed' | 'active' | 'pending';
@@ -8,7 +9,13 @@ interface Props {
   status: StepStatus;
   stepNumber: number;
   isLast: boolean;
-  onCopy: (content: string) => void;
+  onCopy: (target: PlaybookCopyTarget) => void;
+}
+
+export interface PlaybookCopyTarget {
+  promptId: string;
+  variantId: string;
+  content: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -266,10 +273,7 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
             {isChoice && step.choice_prompts && step.choice_prompts.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-3">
                 {step.choice_prompts.map((cp) => {
-                  const content =
-                    cp.variants.find((v) => v.id === cp.primary_variant_id)?.content ??
-                    cp.variants[0]?.content ??
-                    '';
+                  const variant = getPrimaryVariant(cp);
                   return (
                     <button
                       key={cp.id}
@@ -291,7 +295,15 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
                         e.currentTarget.style.background =
                           'color-mix(in srgb, #af52de 8%, transparent)';
                       }}
-                      onClick={() => onCopy(content)}
+                      onClick={() => {
+                        if (variant) {
+                          onCopy({
+                            promptId: cp.id,
+                            variantId: variant.id,
+                            content: variant.content,
+                          });
+                        }
+                      }}
                     >
                       {cp.title}
                     </button>
@@ -351,7 +363,13 @@ export function PlaybookStep({ step, status, stepNumber, isLast, onCopy }: Props
                     e.currentTarget.style.opacity = '1';
                   }}
                   onClick={() => {
-                    if (activeVariant) onCopy(activeVariant.content);
+                    if (activeVariant) {
+                      onCopy({
+                        promptId: step.prompt!.id,
+                        variantId: activeVariant.id,
+                        content: activeVariant.content,
+                      });
+                    }
                   }}
                 >
                   Copy Step {stepNumber}

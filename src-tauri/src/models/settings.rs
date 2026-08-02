@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub const GLOBAL_SEARCH_ACTION: &str = "global_toggle_search";
+pub const DEFAULT_GLOBAL_SEARCH_SHORTCUT: &str = "CommandOrControl+Shift+P";
+
 pub const SHORTCUT_ACTIONS: &[(&str, &str, &str, bool)] = &[
     // (action_id, default_binding, label, is_global)
     (
-        "global_toggle_search",
-        "CommandOrControl+Shift+P",
+        GLOBAL_SEARCH_ACTION,
+        DEFAULT_GLOBAL_SEARCH_SHORTCUT,
         "Toggle Search Window",
         true,
     ),

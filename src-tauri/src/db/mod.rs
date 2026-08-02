@@ -10,14 +10,15 @@ pub use migrations::migrate;
 
 /// Return the path to the Cadence database file.
 /// Uses `~/Library/Application Support/Cadence/cadence.db` via `dirs::data_dir()`.
-pub fn db_path() -> PathBuf {
-    let mut path = dirs::data_dir().expect("Could not determine data directory");
+pub fn db_path() -> Result<PathBuf, String> {
+    let mut path = dirs::data_dir()
+        .ok_or_else(|| "Cadence could not determine the application data directory".to_string())?;
     path.push("Cadence");
-    path
+    Ok(path)
 }
 
-pub fn database_file() -> PathBuf {
-    db_path().join("cadence.db")
+pub fn database_file() -> Result<PathBuf, String> {
+    Ok(db_path()?.join("cadence.db"))
 }
 
 /// Open a database connection with the settings required by Cadence's
@@ -43,9 +44,11 @@ pub fn connect(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 /// Initialize a connection to the application database.
-pub fn init() -> rusqlite::Result<Connection> {
-    let dir = db_path();
-    fs::create_dir_all(&dir).expect("Failed to create database directory");
+pub fn init() -> Result<Connection, String> {
+    let dir = db_path()?;
+    fs::create_dir_all(&dir)
+        .map_err(|error| format!("Cadence could not create its database directory: {error}"))?;
 
-    connect(&database_file())
+    connect(&dir.join("cadence.db"))
+        .map_err(|error| format!("Cadence could not open its database: {error}"))
 }
