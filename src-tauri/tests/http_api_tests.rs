@@ -332,6 +332,31 @@ async fn body_larger_than_four_megabytes_is_rejected() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn record_copy_for_soft_deleted_prompt_maps_to_not_found() {
+    let _guard = HTTP_TEST_LOCK.lock().await;
+    let server = TestServer::start().await;
+    {
+        let mut conn = server.state.db.lock().unwrap();
+        prompt_service::delete_prompt(&mut conn, &server.ids.prompt).unwrap();
+    }
+
+    let response = server
+        .authenticated(
+            "POST",
+            &format!("/api/v1/prompts/{}/copy", server.ids.prompt),
+            &format!(r#"{{"variant_id":"{}"}}"#, server.ids.variant),
+        )
+        .await;
+    assert_status(
+        &response,
+        404,
+        "POST",
+        "record copy for soft-deleted prompt",
+    );
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_and_conflict_errors_map_to_400_and_409_without_sql_details() {
     let _guard = HTTP_TEST_LOCK.lock().await;
     let server = TestServer::start().await;

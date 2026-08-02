@@ -220,6 +220,29 @@ fn targeted_mutations_return_not_found_for_unknown_ids() {
 }
 
 #[test]
+fn record_copy_rejects_variant_from_soft_deleted_prompt_without_history_write() {
+    let mut conn = setup_db();
+    let created = prompt_service::create_prompt(&mut conn, prompt_request("Deleted")).unwrap();
+    let prompt_id = created.prompt.id;
+    let variant_id = created.variants[0].id.clone();
+    prompt_service::delete_prompt(&mut conn, &prompt_id).unwrap();
+
+    assert_not_found(prompt_service::record_copy(
+        &mut conn,
+        &prompt_id,
+        Some(&variant_id),
+    ));
+    let history_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM copy_history WHERE prompt_id = ?1",
+            [&prompt_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(history_count, 0);
+}
+
+#[test]
 fn sqlite_constraints_map_to_conflict() {
     let mut conn = setup_db();
     conn.execute_batch(
