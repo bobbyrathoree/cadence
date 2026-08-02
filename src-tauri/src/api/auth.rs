@@ -16,20 +16,34 @@ pub async fn auth_middleware(
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Allow health endpoint without auth
+    let host = req
+        .headers()
+        .get("host")
+        .and_then(|value| value.to_str().ok());
+    let loopback = format!("127.0.0.1:{}", state.api_port);
+    let localhost = format!("localhost:{}", state.api_port);
+    if !matches!(host, Some(value) if value == loopback || value == localhost) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Host validation intentionally runs before this public health bypass.
     if req.uri().path() == "/api/v1/health" {
         return Ok(next.run(req).await);
     }
 
-    // Extract and validate the Bearer token
     let auth_header = req
         .headers()
         .get("Authorization")
         .and_then(|v| v.to_str().ok());
 
     match auth_header {
-        Some(header) if header.starts_with("Bearer ") => {
-            let token = &header[7..];
+        Some(header) => {
+            let Some((scheme, token)) = header.split_once(' ') else {
+                return Err(StatusCode::UNAUTHORIZED);
+            };
+            if !scheme.eq_ignore_ascii_case("bearer") {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
             if token == state.api_key {
                 Ok(next.run(req).await)
             } else {

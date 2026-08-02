@@ -1,5 +1,6 @@
 use tauri::{Emitter, Manager};
 
+use crate::api::lifecycle::ApiStatus;
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::playbook::{Playbook, PlaybookSession, PlaybookStep, PlaybookWithSteps};
 use crate::models::prompt::{
@@ -13,6 +14,26 @@ use crate::services::{
     settings_service, tag_service,
 };
 use crate::state::AppState;
+
+#[tauri::command]
+pub fn get_api_enabled(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database is unavailable".to_string())?;
+    settings_service::get_api_enabled(&conn).map_err(|error| error.ipc_message())
+}
+
+#[tauri::command]
+pub async fn set_api_enabled(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<ApiStatus, String> {
+    let mut api = state.api.lock().await;
+    api.set_enabled(&state.db, enabled)
+        .await
+        .map_err(|error| error.ipc_message())
+}
 
 #[tauri::command]
 pub fn list_prompts(state: tauri::State<'_, AppState>) -> Result<Vec<PromptListItem>, String> {

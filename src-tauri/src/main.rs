@@ -2,23 +2,15 @@
 
 mod tray;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-use rand::Rng;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
-use cadence_lib::api;
+use cadence_lib::api::lifecycle::ApiLifecycle;
 use cadence_lib::commands;
 use cadence_lib::db;
 use cadence_lib::seed;
 use cadence_lib::state::AppState;
-
-/// Generate an API key in the format `cad_` followed by 16 random hex characters.
-fn generate_api_key() -> String {
-    let mut buf = [0u8; 8];
-    rand::thread_rng().fill(&mut buf);
-    format!("cad_{}", hex::encode(buf))
-}
 
 #[tauri::command]
 fn hide_search_window(app: tauri::AppHandle) {
@@ -48,23 +40,12 @@ fn main() {
         eprintln!("Warning: failed to seed starter kit: {}", e);
     }
 
-    let api_key = generate_api_key();
-    let api_port: u16 = 0; // Will be determined by the API server
-
     let app_state = AppState {
         db: Mutex::new(conn),
-        api_key: api_key.clone(),
-        api_port,
+        api: tokio::sync::Mutex::new(ApiLifecycle::for_application()),
     };
 
-    // Create a separate database connection for the API server
-    let api_conn = db::init().expect("Failed to initialize API database connection");
-    let api_state = Arc::new(api::server::ApiState {
-        db: Mutex::new(api_conn),
-        api_key,
-    });
-
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(app_state)
@@ -101,6 +82,8 @@ fn main() {
             commands::handlers::get_keyboard_shortcuts,
             commands::handlers::update_keyboard_shortcut,
             commands::handlers::reset_keyboard_shortcuts,
+            commands::handlers::get_api_enabled,
+            commands::handlers::set_api_enabled,
             hide_search_window,
             show_search_window,
         ])
@@ -110,6 +93,16 @@ fn main() {
             // Set up native tray menu
             if let Err(e) = tray::setup_tray(&handle) {
                 eprintln!("Failed to setup tray: {}", e);
+            }
+
+            let api_startup = tauri::async_runtime::block_on(async {
+                let state = app.state::<AppState>();
+                let mut api = state.api.lock().await;
+                api.startup(&state.db).await
+            });
+            if let Err(error) = api_startup {
+                eprintln!("Failed to start the local API: {error}");
+                let _ = app.emit("api-error", error.ipc_message());
             }
 
             // Register global shortcut dynamically from saved settings
@@ -150,12 +143,17 @@ fn main() {
                     .expect("Failed to register global shortcut");
             }
 
-            // Spawn the axum API server in a background task
-            tauri::async_runtime::spawn(async move {
-                api::server::start(api_state).await;
-            });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            let state = app_handle.state::<AppState>();
+            let _ = tauri::async_runtime::block_on(async {
+                state.api.lock().await.shutdown_on_exit().await
+            });
+        }
+    });
 }
