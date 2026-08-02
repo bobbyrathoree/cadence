@@ -39,11 +39,33 @@ fn result_ids(conn: &rusqlite::Connection, query: &str) -> Vec<String> {
 }
 
 #[test]
-fn title_and_description_changes_evict_old_terms() {
+fn title_change_evicts_old_terms() {
+    let mut conn = setup_db();
+    let prompt = create_prompt(&mut conn, "Amberquartz title", None, "neutral content", &[]);
+
+    prompt_service::update_prompt(
+        &mut conn,
+        &prompt.prompt.id,
+        UpdatePromptRequest {
+            title: Some("Verdant title".to_string()),
+            description: None,
+            is_favorite: None,
+            is_pinned: None,
+            primary_variant_id: None,
+        },
+    )
+    .unwrap();
+
+    assert!(result_ids(&conn, "amberquartz").is_empty());
+    assert_eq!(result_ids(&conn, "verdant"), vec![prompt.prompt.id]);
+}
+
+#[test]
+fn description_change_evicts_old_terms() {
     let mut conn = setup_db();
     let prompt = create_prompt(
         &mut conn,
-        "Amberquartz title",
+        "Description change",
         Some("Cobaltmist description"),
         "neutral content",
         &[],
@@ -53,7 +75,7 @@ fn title_and_description_changes_evict_old_terms() {
         &mut conn,
         &prompt.prompt.id,
         UpdatePromptRequest {
-            title: Some("Verdant title".to_string()),
+            title: None,
             description: Some("Silver description".to_string()),
             is_favorite: None,
             is_pinned: None,
@@ -62,9 +84,7 @@ fn title_and_description_changes_evict_old_terms() {
     )
     .unwrap();
 
-    assert!(result_ids(&conn, "amberquartz").is_empty());
     assert!(result_ids(&conn, "cobaltmist").is_empty());
-    assert_eq!(result_ids(&conn, "verdant"), vec![prompt.prompt.id.clone()]);
     assert_eq!(result_ids(&conn, "silver"), vec![prompt.prompt.id]);
 }
 
