@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 const SHORTCUTS_KEY: &str = "keyboard_shortcuts";
 const SEEDED_AT_KEY: &str = "seeded_at";
 

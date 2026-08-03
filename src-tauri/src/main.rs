@@ -2,7 +2,7 @@
 
 mod tray;
 
-use std::process::Command;
+use std::process::{self, Command};
 use std::sync::Mutex;
 
 use tauri::{Emitter, Manager};
@@ -33,26 +33,60 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("Cadence failed to start: {error}");
         show_fatal_startup_dialog(&error);
+        process::exit(1);
     }
 }
 
 fn run() -> Result<(), String> {
-    // Initialize the database (creates dir + schema if needed).
-    let mut conn = db::init()?;
-
-    // Migrations run exactly once on the main connection before seeding,
-    // opening the API connection, or loading any windows.
-    db::migrate(&mut conn)
-        .map_err(|error| format!("Cadence could not migrate its database: {error:?}"))?;
+    let database_path = db::locate_database(None)
+        .map_err(|error| format!("Cadence could not locate its database: {error}"))?;
+    let mut database = match db::open_app(&database_path, db::Health::exit_process(1))
+        .map_err(|error| format!("Cadence could not open its database: {error}"))?
+    {
+        db::DbOpen::Ready(database) => database,
+        db::DbOpen::NeedsMigration(mut database, version) => {
+            if version == 0 {
+                db::schema::create_tables(&database.conn).map_err(|error| {
+                    format!("Cadence could not initialize its database schema: {error}")
+                })?;
+            }
+            db::migrate(&mut database.conn)
+                .map_err(|error| format!("Cadence could not migrate its database: {error}"))?;
+            let migrated_version: i64 = database
+                .conn
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .map_err(|error| {
+                    format!("Cadence could not verify its database schema: {error}")
+                })?;
+            if migrated_version != db::CURRENT_SCHEMA_VERSION {
+                return Err(format!(
+                    "Cadence database migration ended at schema version {migrated_version}, expected {}",
+                    db::CURRENT_SCHEMA_VERSION
+                ));
+            }
+            database
+        }
+        db::DbOpen::SchemaNewer {
+            db_version,
+            supported,
+        } => {
+            return Err(format!(
+                "Cadence database schema version {db_version} is newer than supported version {supported}"
+            ));
+        }
+        db::DbOpen::MissingFile => {
+            return Err("Cadence application database was not created".to_string());
+        }
+    };
 
     // Seed starter content on first launch (no-op if data already exists).
-    if let Err(e) = seed::seed_if_empty(&mut conn) {
+    if let Err(e) = seed::seed_if_empty(&mut database.conn) {
         eprintln!("Warning: failed to seed starter kit: {}", e);
     }
 
     let app_state = AppState {
-        db: Mutex::new(conn),
-        api: tokio::sync::Mutex::new(ApiLifecycle::for_application()?),
+        db: Mutex::new(database.conn),
+        api: tokio::sync::Mutex::new(ApiLifecycle::for_application(database_path)?),
     };
 
     let app = tauri::Builder::default()

@@ -54,12 +54,12 @@ impl ApiLifecycle {
         }
     }
 
-    pub fn for_application() -> Result<Self, String> {
-        let database_dir = db::db_path()?;
-        Ok(Self::new(
-            database_dir.join("cadence.db"),
-            database_dir.join("api.json"),
-        ))
+    pub fn for_application(database_path: PathBuf) -> Result<Self, String> {
+        let database_dir = database_path
+            .parent()
+            .ok_or_else(|| "Cadence database path has no parent directory".to_string())?;
+        let discovery_path = database_dir.join("api.json");
+        Ok(Self::new(database_path, discovery_path))
     }
 
     pub fn status(&self) -> ApiStatus {

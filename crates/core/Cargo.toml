@@ -15,3 +15,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 tokio = { version = "1", features = ["rt"] }
+
+[[test]]
+name = "db_open_tests"
+required-features = ["test-support"]

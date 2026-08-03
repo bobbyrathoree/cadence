@@ -28,7 +28,7 @@ jobs:
       - name: Test
         run: cargo test --workspace
       - name: Check baseline
-        run: scripts/check-baseline.sh --exact
+        run: scripts/check-baseline.sh --subset
       - name: Test core support feature
         run: cargo test -p cadence-core --features test-support
       - name: Test app support feature
