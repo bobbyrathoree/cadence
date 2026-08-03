@@ -10,12 +10,20 @@ import { Modal } from '../shared/Modal';
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  apiError?: string | null;
   shortcuts: KeyboardShortcut[];
   onUpdateShortcut: (action: string, binding: string) => void;
   onResetAll: () => void;
 }
 
-export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, onResetAll }: Props) {
+export function SettingsModal({
+  isOpen,
+  onClose,
+  apiError = null,
+  shortcuts,
+  onUpdateShortcut,
+  onResetAll,
+}: Props) {
   const [settingValues, setSettingValues] = useState<Record<string, boolean>>({});
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -175,6 +183,22 @@ export function SettingsModal({ isOpen, onClose, shortcuts, onUpdateShortcut, on
                 }
                 onChange={(enabled) => void updateToggle(definition, enabled)}
               />
+              {definition.id === 'api_enabled' && apiError && (
+                <div
+                  role="alert"
+                  style={{
+                    marginTop: 6,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    color: '#ff453a',
+                    background:
+                      'color-mix(in srgb, #ff453a 8%, transparent)',
+                    fontSize: 11,
+                  }}
+                >
+                  {apiError}
+                </div>
+              )}
             </div>
           ))}
 

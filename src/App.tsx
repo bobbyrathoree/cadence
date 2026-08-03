@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppProvider, useAppContext } from './lib/context';
@@ -18,6 +18,7 @@ import { ImportModal } from './components/import/ImportModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 
 function AppContent() {
+  const [lastApiError, setLastApiError] = useState<string | null>(null);
   const {
     activeView,
     activeCollectionId,
@@ -214,6 +215,17 @@ function AppContent() {
     };
   }, [triggerRefresh]);
 
+  useEffect(() => {
+    const unlisten = listen<string>('api-error', (event) => {
+      const message = `Local API failed to start: ${event.payload}`;
+      setLastApiError(message);
+      showToast(message, 'error');
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [showToast]);
+
   return (
     <div
       className="flex h-screen overflow-hidden"
@@ -240,6 +252,7 @@ function AppContent() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        apiError={lastApiError}
         shortcuts={shortcuts}
         onUpdateShortcut={async (action, binding) => {
           try {

@@ -17,12 +17,13 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-function renderSettings() {
+function renderSettings(apiError?: string | null) {
   return render(
     <AppProvider>
       <SettingsModal
         isOpen
         onClose={() => undefined}
+        apiError={apiError}
         shortcuts={[]}
         onUpdateShortcut={() => undefined}
         onResetAll={() => undefined}
@@ -74,5 +75,13 @@ describe('SettingsModal local API setting', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('port unavailable'),
     );
     expect(toggle).not.toBeChecked();
+  });
+
+  it('surfaces the last startup lifecycle error beside the API setting', async () => {
+    renderSettings('Local API failed to start: listener unavailable');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Local API failed to start: listener unavailable',
+    );
   });
 });

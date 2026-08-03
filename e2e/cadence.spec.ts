@@ -315,6 +315,25 @@ test("enables and disables the local API from Settings", async ({ page }) => {
   ]);
 });
 
+test("surfaces local API startup failures in the app and Settings", async ({
+  page,
+}) => {
+  await openCadence(page, "/");
+  const settingsButton = page.getByRole("button", { name: "Settings" });
+  await expect(settingsButton).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__CADENCE_E2E__?.emit("api-error", "listener unavailable");
+  });
+
+  const message = "Local API failed to start: listener unavailable";
+  await expect(page.getByText(message)).toBeVisible();
+
+  await settingsButton.click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog.getByRole("alert")).toHaveText(message);
+});
+
 interface IpcCall {
   command: string;
   args: Record<string, unknown>;
