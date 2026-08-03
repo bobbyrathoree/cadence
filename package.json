@@ -10,7 +10,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
+    "preview:e2e": "vite preview --mode e2e",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "tauri": "tauri"

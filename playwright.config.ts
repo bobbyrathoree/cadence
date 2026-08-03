@@ -6,7 +6,8 @@ export default defineConfig({
   reporter: "list",
   outputDir: "test-results",
   webServer: {
-    command: "npm run preview -- --host 127.0.0.1 --port 4173 --strictPort",
+    command:
+      "npm run build:e2e && npm run preview:e2e -- --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
   },

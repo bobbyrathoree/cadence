@@ -6,10 +6,11 @@ const host = process.env.TAURI_DEV_HOST;
 const contentSecurityPolicy =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost";
 
-export default defineConfig(async () => ({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   build: {
+    outDir: mode === "e2e" ? "dist-e2e" : "dist",
     rollupOptions: {
       input: {
         main: "index.html",
