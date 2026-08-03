@@ -111,6 +111,29 @@ describe('prompt draft reducer', () => {
     expect(result.failures).toEqual([]);
   });
 
+  it('persists a trimmed-empty description as an explicit null clear', async () => {
+    let state = promptDraftReducer(createPromptDraftState(), {
+      type: 'seed',
+      prompt: prompt(),
+      activeVariantId: 'variant-a',
+    });
+    state = promptDraftReducer(state, {
+      type: 'edit_metadata',
+      description: '   ',
+    });
+    const updatePrompt = vi.fn().mockResolvedValue(undefined);
+
+    await savePromptDrafts(state, {
+      updatePrompt,
+      updateVariant: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(updatePrompt).toHaveBeenCalledWith('prompt-1', {
+      title: 'Original title',
+      description: null,
+    });
+  });
+
   it('leaves drafts untouched when the same prompt is refetched during editing', () => {
     const source = prompt();
     let state = promptDraftReducer(createPromptDraftState(), {

@@ -8,9 +8,9 @@ export interface PromptEditExitDetail {
 
 export interface PromptMetadataDraft {
   title: string;
-  description: string;
+  description: string | null;
   originalTitle: string;
-  originalDescription: string;
+  originalDescription: string | null;
 }
 
 export interface VariantDraft {
@@ -36,7 +36,7 @@ export type PromptDraftAction =
   | {
       type: 'edit_metadata';
       title?: string;
-      description?: string;
+      description?: string | null;
     }
   | {
       type: 'edit_variant';
@@ -54,7 +54,7 @@ export type PromptDraftAction =
 export interface DraftPersistence {
   updatePrompt: (
     promptId: string,
-    request: { title: string; description: string },
+    request: { title: string; description: string | null },
   ) => Promise<unknown>;
   updateVariant: (variantId: string, content: string, label: string) => Promise<unknown>;
 }
@@ -154,9 +154,9 @@ function seedDrafts(
   if (!metadata) {
     metadata = {
       title: prompt.title,
-      description: prompt.description ?? '',
+      description: prompt.description,
       originalTitle: prompt.title,
-      originalDescription: prompt.description ?? '',
+      originalDescription: prompt.description,
     };
   }
 
@@ -221,7 +221,7 @@ export async function savePromptDrafts(
     try {
       await persistence.updatePrompt(state.promptId, {
         title: state.metadata.title,
-        description: state.metadata.description,
+        description: state.metadata.description?.trim() || null,
       });
       result.savedMetadata = true;
     } catch (error) {
