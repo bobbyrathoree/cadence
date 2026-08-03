@@ -1,0 +1,32 @@
+{
+  "prompts": [
+    {
+      "name": "p-30000000-0000-4000-8000-000000000001",
+      "arguments": [
+        {
+          "name": "who",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "duplicate-30000000-0000-4000-8000-000000000002",
+      "arguments": []
+    },
+    {
+      "name": "duplicate-30000000-0000-4000-8000-000000000003",
+      "arguments": [
+        {
+          "name": "first",
+          "required": false
+        },
+        {
+          "name": "second",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "ttlMs": 0,
+  "cacheScope": "private"
+}

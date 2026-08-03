@@ -15,6 +15,9 @@ const LEGACY_VERSION: &str = "2025-11-25";
 const CURRENT_VERSION: &str = "2026-07-28";
 const FIXTURE_PROMPT_ID: &str = "11111111-1111-4111-8111-111111111111";
 const FIXTURE_VARIANT_ID: &str = "22222222-2222-4222-8222-222222222222";
+const EMPTY_PROMPT_ID: &str = "30000000-0000-4000-8000-000000000001";
+const HOSTILE_PROMPT_ID: &str = "40000000-0000-4000-8000-000000000001";
+const GOLDEN_PLAYBOOK_ID: &str = "50000000-0000-4000-8000-000000000001";
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -229,6 +232,157 @@ fn create_fixture(path: &Path, include_prompt: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn insert_prompt(
+    conn: &Connection,
+    id: &str,
+    variant_id: &str,
+    title: &str,
+    description: Option<&str>,
+    content: &str,
+    label: &str,
+    favorite: bool,
+    pinned: bool,
+) {
+    conn.execute(
+        "INSERT INTO prompts
+            (id, title, description, primary_variant_id, is_favorite, is_pinned,
+             copy_count, created_at, updated_at)
+         VALUES (?1, ?2, ?3, NULL, ?4, ?5, 0, '2026-08-03T12:00:00Z',
+                 '2026-08-03T12:00:00Z')",
+        params![id, title, description, favorite as i64, pinned as i64],
+    )
+    .expect("insert prompt fixture");
+    conn.execute(
+        "INSERT INTO variants
+            (id, prompt_id, label, content, content_type, sort_order, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'static', 0, '2026-08-03T12:00:00Z',
+                 '2026-08-03T12:00:00Z')",
+        params![variant_id, id, label, content],
+    )
+    .expect("insert variant fixture");
+    conn.execute(
+        "UPDATE prompts SET primary_variant_id = ?1 WHERE id = ?2",
+        params![variant_id, id],
+    )
+    .expect("set fixture primary variant");
+}
+
+fn create_prompt_catalog_fixture(path: &Path) {
+    create_fixture(path, false);
+    let conn = Connection::open(path).expect("open prompt catalog fixture");
+    insert_prompt(
+        &conn,
+        EMPTY_PROMPT_ID,
+        "31000000-0000-4000-8000-000000000001",
+        "",
+        None,
+        "Hello {{who}} [LEGACY]",
+        "Primary",
+        true,
+        false,
+    );
+    insert_prompt(
+        &conn,
+        "30000000-0000-4000-8000-000000000002",
+        "31000000-0000-4000-8000-000000000002",
+        "Duplicate",
+        None,
+        "No variables",
+        "Primary",
+        false,
+        true,
+    );
+    insert_prompt(
+        &conn,
+        "30000000-0000-4000-8000-000000000003",
+        "31000000-0000-4000-8000-000000000003",
+        "Duplicate",
+        None,
+        "{{first}} then {{second}} then {{first}}",
+        "Primary",
+        true,
+        false,
+    );
+}
+
+fn create_resource_fixture(path: &Path) {
+    create_fixture(path, false);
+    let conn = Connection::open(path).expect("open resource fixture");
+    insert_prompt(
+        &conn,
+        HOSTILE_PROMPT_ID,
+        "41000000-0000-4000-8000-000000000001",
+        "Hostile # title ```",
+        Some("Line one\r\nLine two\rLine three"),
+        "before ````` after\r\nnext",
+        "Primary",
+        false,
+        true,
+    );
+    insert_prompt(
+        &conn,
+        "40000000-0000-4000-8000-000000000002",
+        "41000000-0000-4000-8000-000000000002",
+        "Favorite but unpinned",
+        None,
+        "Not a resource",
+        "Primary",
+        true,
+        false,
+    );
+    for (id, variant_id, title) in [
+        (
+            "42000000-0000-4000-8000-000000000001",
+            "43000000-0000-4000-8000-000000000001",
+            "Alpha",
+        ),
+        (
+            "42000000-0000-4000-8000-000000000002",
+            "43000000-0000-4000-8000-000000000002",
+            "Beta",
+        ),
+        (
+            "42000000-0000-4000-8000-000000000003",
+            "43000000-0000-4000-8000-000000000003",
+            "Deleted",
+        ),
+    ] {
+        insert_prompt(
+            &conn, id, variant_id, title, None, title, "Primary", false, false,
+        );
+    }
+    conn.execute(
+        "UPDATE prompts SET deleted_at = '2026-08-03T13:00:00Z'
+         WHERE id = '42000000-0000-4000-8000-000000000003'",
+        [],
+    )
+    .expect("soft-delete partial choice prompt");
+    conn.execute(
+        "INSERT INTO playbooks (id, title, description)
+         VALUES (?1, 'Golden playbook', 'Guide\r\nNow')",
+        params![GOLDEN_PLAYBOOK_ID],
+    )
+    .expect("insert golden playbook");
+    conn.execute_batch(
+        "INSERT INTO playbook_steps
+            (id, playbook_id, prompt_id, position, step_type, instructions, choice_prompt_ids)
+         VALUES
+            ('51000000-0000-4000-8000-000000000001',
+             '50000000-0000-4000-8000-000000000001',
+             '42000000-0000-4000-8000-000000000003', 0, 'single', 'Do\r\nthis', NULL),
+            ('51000000-0000-4000-8000-000000000002',
+             '50000000-0000-4000-8000-000000000001',
+             NULL, 1, 'choice', NULL,
+             '42000000-0000-4000-8000-000000000001,42000000-0000-4000-8000-000000000002'),
+            ('51000000-0000-4000-8000-000000000003',
+             '50000000-0000-4000-8000-000000000001',
+             NULL, 2, 'choice', NULL,
+             '42000000-0000-4000-8000-000000000001,42000000-0000-4000-8000-000000000003');",
+    )
+    .expect("insert golden playbook steps");
+}
+
 fn snapshot(name: &str, actual: &Value) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -239,6 +393,15 @@ fn snapshot(name: &str, actual: &Value) {
     let expected: Value = serde_json::from_slice(&bytes)
         .unwrap_or_else(|error| panic!("parse snapshot {}: {error}", path.display()));
     assert_eq!(&expected, actual, "snapshot mismatch: {}", path.display());
+}
+
+fn golden(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("goldens")
+        .join(name);
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read hand-authored golden {}: {error}", path.display()))
 }
 
 fn read_snapshot(name: &str) -> Value {
@@ -423,6 +586,486 @@ fn duplicate_titles_report_candidates_in_entity_order() {
         playbook["result"]["content"][0]["text"],
         "ambiguous title; candidates: [{\"id\":\"20000000-0000-4000-8000-000000000001\",\"title\":\"Duplicate playbook\"},{\"id\":\"20000000-0000-4000-8000-000000000002\",\"title\":\"Duplicate playbook\"}]; call again with an id"
     );
+}
+
+#[test]
+fn prompt_catalog_and_get_follow_parser_and_stable_name_contracts() {
+    for version in [LEGACY_VERSION, CURRENT_VERSION] {
+        let temp = TempDir::new("prompt-catalog");
+        let database = temp.database("fixture.db");
+        create_prompt_catalog_fixture(&database);
+        let mut client = WireClient::spawn(&database, false);
+        assert_handshake(&client.initialize(version), version);
+
+        let list = client.request("prompts/list", None, READ_TIMEOUT);
+        snapshot(&format!("prompts-list-{version}.json"), &list["result"]);
+        let name = list["result"]["prompts"][0]["name"]
+            .as_str()
+            .expect("prompt name");
+        let get = client.request(
+            "prompts/get",
+            Some(json!({
+                "name": name,
+                "arguments": {
+                    "who": "Ada",
+                    "unknown": "ignored"
+                }
+            })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(
+            get["result"]["messages"][0],
+            json!({
+                "role": "user",
+                "content": { "type": "text", "text": "Hello Ada [LEGACY]" }
+            })
+        );
+        if version == LEGACY_VERSION {
+            assert!(get["result"].get("resultType").is_none());
+        } else {
+            assert_eq!(get["result"]["resultType"], "complete");
+        }
+    }
+}
+
+#[test]
+fn prompt_arguments_coerce_only_strings_numbers_and_booleans() {
+    let temp = TempDir::new("prompt-arguments");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, false);
+    let conn = Connection::open(&database).expect("open argument fixture");
+    let id = "32000000-0000-4000-8000-000000000001";
+    insert_prompt(
+        &conn,
+        id,
+        "32100000-0000-4000-8000-000000000001",
+        "Types",
+        None,
+        "{{s}}|{{n}}|{{b}}|{{nil}}|{{arr}}|{{obj}}|{{missing}}|{{empty}}",
+        "Primary",
+        true,
+        false,
+    );
+    drop(conn);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let response = client.request(
+        "prompts/get",
+        Some(json!({
+            "name": format!("any-prefix-{id}"),
+            "arguments": {
+                "s": "$&",
+                "n": 12.5,
+                "b": true,
+                "nil": null,
+                "arr": ["ignored"],
+                "obj": { "ignored": true },
+                "empty": "",
+                "unknown": "ignored"
+            }
+        })),
+        READ_TIMEOUT,
+    );
+    assert_eq!(
+        response["result"]["messages"][0]["content"]["text"],
+        "$&|12.5|true|{{nil}}|{{arr}}|{{obj}}|{{missing}}|{{empty}}"
+    );
+}
+
+#[test]
+fn prompt_catalog_cap_and_uuid_tail_resolution_hold_at_boundaries() {
+    for count in [99_u32, 100, 101] {
+        let temp = TempDir::new("prompt-cap");
+        let database = temp.database("fixture.db");
+        create_fixture(&database, false);
+        let conn = Connection::open(&database).expect("open cap fixture");
+        for index in 0..count {
+            let id = format!("60000000-0000-4000-8000-{index:012x}");
+            let variant_id = format!("61000000-0000-4000-8000-{index:012x}");
+            insert_prompt(
+                &conn,
+                &id,
+                &variant_id,
+                &format!("Catalog {index:03}"),
+                None,
+                &format!("content {index}"),
+                "Primary",
+                true,
+                false,
+            );
+        }
+        drop(conn);
+        let mut client = WireClient::spawn(&database, false);
+        assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+        let list = client.request("prompts/list", None, READ_TIMEOUT);
+        assert_eq!(
+            list["result"]["prompts"]
+                .as_array()
+                .expect("prompt catalog array")
+                .len(),
+            usize::try_from(count.min(100)).expect("count fits usize")
+        );
+        if count == 101 {
+            let outside_id = "60000000-0000-4000-8000-000000000064";
+            let get = client.request(
+                "prompts/get",
+                Some(json!({ "name": format!("stale-prefix-{outside_id}") })),
+                READ_TIMEOUT,
+            );
+            assert_eq!(
+                get["result"]["messages"][0]["content"]["text"],
+                "content 100"
+            );
+        }
+    }
+}
+
+#[test]
+fn renamed_prompt_keeps_old_name_resolution_and_lists_new_slug() {
+    let temp = TempDir::new("prompt-rename");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, false);
+    let id = "33000000-0000-4000-8000-000000000001";
+    let conn = Connection::open(&database).expect("open rename fixture");
+    insert_prompt(
+        &conn,
+        id,
+        "33100000-0000-4000-8000-000000000001",
+        "Old title",
+        None,
+        "stable content",
+        "Primary",
+        true,
+        false,
+    );
+    drop(conn);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+    let old_name = format!("old-title-{id}");
+
+    Connection::open(&database)
+        .expect("reopen rename fixture")
+        .execute(
+            "UPDATE prompts SET title = 'New title' WHERE id = ?1",
+            params![id],
+        )
+        .expect("rename prompt");
+
+    let get = client.request(
+        "prompts/get",
+        Some(json!({ "name": old_name })),
+        READ_TIMEOUT,
+    );
+    assert_eq!(
+        get["result"]["messages"][0]["content"]["text"],
+        "stable content"
+    );
+    let list = client.request("prompts/list", None, READ_TIMEOUT);
+    assert_eq!(
+        list["result"]["prompts"][0]["name"],
+        format!("new-title-{id}")
+    );
+}
+
+#[test]
+fn resource_catalog_templates_and_markdown_match_hand_authored_fixtures() {
+    for version in [LEGACY_VERSION, CURRENT_VERSION] {
+        let temp = TempDir::new("resource-catalog");
+        let database = temp.database("fixture.db");
+        create_resource_fixture(&database);
+        let mut client = WireClient::spawn(&database, false);
+        assert_handshake(&client.initialize(version), version);
+
+        let resources = client.request("resources/list", None, READ_TIMEOUT);
+        let templates = client.request("resources/templates/list", None, READ_TIMEOUT);
+        snapshot(
+            &format!("resources-catalog-{version}.json"),
+            &json!({
+                "resources_list": resources["result"],
+                "templates_list": templates["result"]
+            }),
+        );
+
+        let prompt_uri = format!("cadence://prompt/{HOSTILE_PROMPT_ID}");
+        let prompt = client.request(
+            "resources/read",
+            Some(json!({ "uri": prompt_uri })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(
+            prompt["result"]["contents"][0]["text"],
+            golden("hostile-prompt.md")
+        );
+        assert_eq!(prompt["result"]["contents"][0]["mimeType"], "text/markdown");
+        assert_eq!(prompt["result"]["ttlMs"], 0);
+        assert_eq!(prompt["result"]["cacheScope"], "private");
+
+        let playbook = client.request(
+            "resources/read",
+            Some(json!({
+                "uri": format!("cadence://playbook/{GOLDEN_PLAYBOOK_ID}")
+            })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(
+            playbook["result"]["contents"][0]["text"],
+            golden("playbook.md")
+        );
+    }
+}
+
+#[test]
+fn resource_uri_error_matrix_is_versioned_and_data_free() {
+    let malformed = [
+        "http://prompt/40000000-0000-4000-8000-000000000001",
+        "cadence://other/40000000-0000-4000-8000-000000000001",
+        "cadence://prompt/not-a-uuid",
+        "cadence://prompt/40000000-0000-4000-8000-000000000001/extra",
+        "cadence://prompt/40000000-0000-4000-8000-000000000001?query=1",
+    ];
+    for version in [LEGACY_VERSION, CURRENT_VERSION] {
+        let temp = TempDir::new("resource-errors");
+        let database = temp.database("fixture.db");
+        create_fixture(&database, false);
+        let mut client = WireClient::spawn(&database, false);
+        assert_handshake(&client.initialize(version), version);
+
+        let mut representative = Value::Null;
+        for uri in malformed {
+            let response =
+                client.request("resources/read", Some(json!({ "uri": uri })), READ_TIMEOUT);
+            assert_eq!(response["error"]["code"], -32602);
+            assert_eq!(
+                response["error"]["message"],
+                format!("unknown resource: {uri}")
+            );
+            assert!(response["error"].get("data").is_none());
+            if uri == "cadence://prompt/not-a-uuid" {
+                representative = response["error"].clone();
+            }
+        }
+        let missing_uri = "cadence://prompt/99999999-9999-4999-8999-999999999999";
+        let missing = client.request(
+            "resources/read",
+            Some(json!({ "uri": missing_uri })),
+            READ_TIMEOUT,
+        );
+        assert!(missing["error"].get("data").is_none());
+        snapshot(
+            &format!("resource-errors-{version}.json"),
+            &json!({
+                "malformed": representative,
+                "missing": missing["error"]
+            }),
+        );
+    }
+}
+
+#[test]
+fn resource_read_survives_catalog_departure_and_accepts_uppercase_uuid() {
+    let temp = TempDir::new("resource-departure");
+    let database = temp.database("fixture.db");
+    create_resource_fixture(&database);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+    let before = client.request("resources/list", None, READ_TIMEOUT);
+    assert_eq!(
+        before["result"]["resources"].as_array().map(Vec::len),
+        Some(1)
+    );
+
+    Connection::open(&database)
+        .expect("open departure fixture")
+        .execute(
+            "UPDATE prompts SET is_pinned = 0 WHERE id = ?1",
+            params![HOSTILE_PROMPT_ID],
+        )
+        .expect("unpin resource");
+    let after = client.request("resources/list", None, READ_TIMEOUT);
+    assert_eq!(after["result"]["resources"], json!([]));
+
+    let read = client.request(
+        "resources/read",
+        Some(json!({
+            "uri": format!("cadence://prompt/{}", HOSTILE_PROMPT_ID.to_uppercase())
+        })),
+        READ_TIMEOUT,
+    );
+    assert_eq!(
+        read["result"]["contents"][0]["text"],
+        golden("hostile-prompt.md")
+    );
+}
+
+#[test]
+fn completion_round_trips_and_treats_prefixes_literally() {
+    for version in [LEGACY_VERSION, CURRENT_VERSION] {
+        let temp = TempDir::new("completion");
+        let database = temp.database("fixture.db");
+        create_resource_fixture(&database);
+        let conn = Connection::open(&database).expect("open completion fixture");
+        for (index, title) in ["% Percent", "_ Under", r"\ Slash"].into_iter().enumerate() {
+            let id = format!("70000000-0000-4000-8000-{index:012x}");
+            let variant_id = format!("71000000-0000-4000-8000-{index:012x}");
+            insert_prompt(
+                &conn,
+                &id,
+                &variant_id,
+                title,
+                None,
+                title,
+                "Primary",
+                false,
+                false,
+            );
+        }
+        for index in 0..11_u32 {
+            let id = format!("72000000-0000-4000-8000-{index:012x}");
+            let variant_id = format!("73000000-0000-4000-8000-{index:012x}");
+            insert_prompt(
+                &conn,
+                &id,
+                &variant_id,
+                &format!("Many {index:02}"),
+                None,
+                "many",
+                "Primary",
+                false,
+                false,
+            );
+        }
+        for (index, title) in ["% Playbook", "_ Playbook", r"\ Playbook"]
+            .into_iter()
+            .enumerate()
+        {
+            conn.execute(
+                "INSERT INTO playbooks (id, title) VALUES (?1, ?2)",
+                params![format!("74000000-0000-4000-8000-{index:012x}"), title],
+            )
+            .expect("insert hostile-prefix playbook");
+        }
+        drop(conn);
+        let mut client = WireClient::spawn(&database, false);
+        assert_handshake(&client.initialize(version), version);
+        let templates = client.request("resources/templates/list", None, READ_TIMEOUT);
+        let prompt_template = templates["result"]["resourceTemplates"][0]["uriTemplate"]
+            .as_str()
+            .expect("prompt template URI");
+        let playbook_template = templates["result"]["resourceTemplates"][1]["uriTemplate"]
+            .as_str()
+            .expect("playbook template URI");
+
+        let complete = |client: &mut WireClient, template: &str, prefix: &str, context: bool| {
+            let mut params = json!({
+                "ref": { "type": "ref/resource", "uri": template },
+                "argument": { "name": "id", "value": prefix }
+            });
+            if context {
+                params["context"] = json!({ "arguments": { "ignored": "value" } });
+            }
+            client.request("completion/complete", Some(params), READ_TIMEOUT)
+        };
+        let round_trip = complete(&mut client, prompt_template, "Hostile", true);
+        assert_eq!(
+            round_trip["result"]["completion"]["values"],
+            json!([HOSTILE_PROMPT_ID])
+        );
+        assert!(round_trip["result"]["completion"].get("total").is_none());
+        assert_eq!(round_trip["result"]["completion"]["hasMore"], false);
+        if version == LEGACY_VERSION {
+            assert!(round_trip["result"].get("resultType").is_none());
+        } else {
+            assert_eq!(round_trip["result"]["resultType"], "complete");
+        }
+        let read = client.request(
+            "resources/read",
+            Some(json!({
+                "uri": format!(
+                    "cadence://prompt/{}",
+                    round_trip["result"]["completion"]["values"][0]
+                        .as_str()
+                        .expect("completed UUID")
+                )
+            })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(
+            read["result"]["contents"][0]["text"],
+            golden("hostile-prompt.md")
+        );
+
+        for (prefix, expected) in [
+            ("%", "70000000-0000-4000-8000-000000000000"),
+            ("_", "70000000-0000-4000-8000-000000000001"),
+            (r"\", "70000000-0000-4000-8000-000000000002"),
+        ] {
+            assert_eq!(
+                complete(&mut client, prompt_template, prefix, false)["result"]["completion"]
+                    ["values"],
+                json!([expected])
+            );
+        }
+        let playbook_round_trip = complete(&mut client, playbook_template, "Golden", true);
+        assert_eq!(
+            playbook_round_trip["result"]["completion"]["values"],
+            json!([GOLDEN_PLAYBOOK_ID])
+        );
+        let playbook_read = client.request(
+            "resources/read",
+            Some(json!({
+                "uri": format!("cadence://playbook/{GOLDEN_PLAYBOOK_ID}")
+            })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(
+            playbook_read["result"]["contents"][0]["text"],
+            golden("playbook.md")
+        );
+        for (prefix, expected) in [
+            ("%", "74000000-0000-4000-8000-000000000000"),
+            ("_", "74000000-0000-4000-8000-000000000001"),
+            (r"\", "74000000-0000-4000-8000-000000000002"),
+        ] {
+            assert_eq!(
+                complete(&mut client, playbook_template, prefix, false)["result"]["completion"]
+                    ["values"],
+                json!([expected])
+            );
+        }
+
+        let many = complete(&mut client, prompt_template, "Many", false);
+        assert_eq!(
+            many["result"]["completion"]["values"]
+                .as_array()
+                .map(Vec::len),
+            Some(10)
+        );
+        assert_eq!(many["result"]["completion"]["hasMore"], true);
+
+        let wrong_argument = client.request(
+            "completion/complete",
+            Some(json!({
+                "ref": { "type": "ref/resource", "uri": prompt_template },
+                "argument": { "name": "other", "value": "ignored" }
+            })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(
+            wrong_argument["result"]["completion"],
+            json!({ "values": [], "hasMore": false })
+        );
+        let unknown = client.request(
+            "completion/complete",
+            Some(json!({
+                "ref": { "type": "ref/resource", "uri": "cadence://unknown/{id}" },
+                "argument": { "name": "id", "value": "" }
+            })),
+            READ_TIMEOUT,
+        );
+        assert_eq!(unknown["error"]["code"], -32602);
+        assert_eq!(unknown["error"]["message"], "unknown completion target");
+    }
 }
 
 #[cfg(not(feature = "test-faults"))]

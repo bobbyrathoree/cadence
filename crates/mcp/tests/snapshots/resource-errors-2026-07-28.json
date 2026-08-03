@@ -1,0 +1,10 @@
+{
+  "malformed": {
+    "code": -32602,
+    "message": "unknown resource: cadence://prompt/not-a-uuid"
+  },
+  "missing": {
+    "code": -32602,
+    "message": "resource not found: cadence://prompt/99999999-9999-4999-8999-999999999999"
+  }
+}

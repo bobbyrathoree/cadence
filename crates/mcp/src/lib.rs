@@ -1,5 +1,7 @@
 pub mod dto;
 mod fault;
+mod prompts;
+mod resources;
 mod server;
 mod tools;
 pub mod write_scope;

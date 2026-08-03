@@ -1,0 +1,33 @@
+{
+  "resources_list": {
+    "resultType": "complete",
+    "resources": [
+      {
+        "uri": "cadence://prompt/40000000-0000-4000-8000-000000000001",
+        "name": "Hostile # title ```",
+        "mimeType": "text/markdown"
+      }
+    ],
+    "ttlMs": 0,
+    "cacheScope": "private"
+  },
+  "templates_list": {
+    "resultType": "complete",
+    "resourceTemplates": [
+      {
+        "uriTemplate": "cadence://prompt/{id}",
+        "name": "cadence-prompt",
+        "description": "A prompt from the Cadence library, rendered as markdown. {id} is the prompt UUID.",
+        "mimeType": "text/markdown"
+      },
+      {
+        "uriTemplate": "cadence://playbook/{id}",
+        "name": "cadence-playbook",
+        "description": "A playbook (ordered prompt workflow) from Cadence, rendered as markdown. {id} is the playbook UUID.",
+        "mimeType": "text/markdown"
+      }
+    ],
+    "ttlMs": 0,
+    "cacheScope": "private"
+  }
+}

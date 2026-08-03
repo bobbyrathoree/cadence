@@ -1,0 +1,182 @@
+[
+  {
+    "content": "plain text",
+    "segments": [
+      { "kind": "text", "raw": "plain text" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": {}, "output": "plain text" }
+    ]
+  },
+  {
+    "content": "{{name}}/{{name}}",
+    "segments": [
+      { "kind": "variable", "raw": "{{name}}", "name": "name" },
+      { "kind": "text", "raw": "/" },
+      { "kind": "variable", "raw": "{{name}}", "name": "name" }
+    ],
+    "names": ["name"],
+    "interpolations": [
+      { "values": { "name": "Ada" }, "output": "Ada/Ada" }
+    ]
+  },
+  {
+    "content": "{{ a.b }}",
+    "segments": [
+      { "kind": "variable", "raw": "{{ a.b }}", "name": "a.b" }
+    ],
+    "names": ["a.b"],
+    "interpolations": [
+      { "values": { "a.b": "dot" }, "output": "dot" }
+    ]
+  },
+  {
+    "content": "{{a{b}}",
+    "segments": [
+      { "kind": "text", "raw": "{{a{b}}" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": { "a{b": "ignored" }, "output": "{{a{b}}" }
+    ]
+  },
+  {
+    "content": "{{[NAME]}}",
+    "segments": [
+      { "kind": "variable", "raw": "{{[NAME]}}", "name": "[NAME]" }
+    ],
+    "names": ["[NAME]"],
+    "interpolations": [
+      { "values": { "[NAME]": "filled" }, "output": "filled" }
+    ]
+  },
+  {
+    "content": "{{a}}{{b}}",
+    "segments": [
+      { "kind": "variable", "raw": "{{a}}", "name": "a" },
+      { "kind": "variable", "raw": "{{b}}", "name": "b" }
+    ],
+    "names": ["a", "b"],
+    "interpolations": [
+      { "values": { "a": "A", "b": "B" }, "output": "AB" }
+    ]
+  },
+  {
+    "content": "{{ }}",
+    "segments": [
+      { "kind": "text", "raw": "{{ }}" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": {}, "output": "{{ }}" }
+    ]
+  },
+  {
+    "content": "{{ a\tb }}",
+    "segments": [
+      { "kind": "variable", "raw": "{{ a\tb }}", "name": "a\tb" }
+    ],
+    "names": ["a\tb"],
+    "interpolations": [
+      { "values": { "a\tb": "tab" }, "output": "tab" }
+    ]
+  },
+  {
+    "content": "before {{a",
+    "segments": [
+      { "kind": "text", "raw": "before {{a" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": { "a": "ignored" }, "output": "before {{a" }
+    ]
+  },
+  {
+    "content": "{{a\nb}}/{{a\rb}}",
+    "segments": [
+      { "kind": "text", "raw": "{{a\nb}}/{{a\rb}}" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": {}, "output": "{{a\nb}}/{{a\rb}}" }
+    ]
+  },
+  {
+    "content": "unmatched [NAME",
+    "segments": [
+      { "kind": "text", "raw": "unmatched [NAME" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": {}, "output": "unmatched [NAME" }
+    ]
+  },
+  {
+    "content": "unmatched ]",
+    "segments": [
+      { "kind": "text", "raw": "unmatched ]" }
+    ],
+    "names": [],
+    "interpolations": [
+      { "values": {}, "output": "unmatched ]" }
+    ]
+  },
+  {
+    "content": "[NAME] {{NAME}}",
+    "segments": [
+      { "kind": "placeholder", "raw": "[NAME]" },
+      { "kind": "text", "raw": " " },
+      { "kind": "variable", "raw": "{{NAME}}", "name": "NAME" }
+    ],
+    "names": ["NAME"],
+    "interpolations": [
+      { "values": { "NAME": "filled" }, "output": "[NAME] filled" }
+    ]
+  },
+  {
+    "content": "🚀 {{who}}",
+    "segments": [
+      { "kind": "text", "raw": "🚀 " },
+      { "kind": "variable", "raw": "{{who}}", "name": "who" }
+    ],
+    "names": ["who"],
+    "interpolations": [
+      { "values": { "who": "🛰️" }, "output": "🚀 🛰️" }
+    ]
+  },
+  {
+    "content": "{{first}} {{second}}",
+    "segments": [
+      { "kind": "variable", "raw": "{{first}}", "name": "first" },
+      { "kind": "text", "raw": " " },
+      { "kind": "variable", "raw": "{{second}}", "name": "second" }
+    ],
+    "names": ["first", "second"],
+    "interpolations": [
+      { "values": { "first": "$&", "second": "$1" }, "output": "$& $1" },
+      { "values": { "first": "", "second": "set" }, "output": "{{first}} set" }
+    ]
+  },
+  {
+    "content": "{{__proto__}}/{{constructor}}/{{toString}}",
+    "segments": [
+      { "kind": "variable", "raw": "{{__proto__}}", "name": "__proto__" },
+      { "kind": "text", "raw": "/" },
+      { "kind": "variable", "raw": "{{constructor}}", "name": "constructor" },
+      { "kind": "text", "raw": "/" },
+      { "kind": "variable", "raw": "{{toString}}", "name": "toString" }
+    ],
+    "names": ["__proto__", "constructor", "toString"],
+    "interpolations": [
+      {
+        "values": {
+          "__proto__": "proto",
+          "constructor": "ctor",
+          "toString": "string"
+        },
+        "output": "proto/ctor/string"
+      }
+    ]
+  }
+]
