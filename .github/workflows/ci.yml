@@ -22,11 +22,23 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Check formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+        run: cargo fmt --all -- --check
       - name: Lint
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --workspace
+      - name: Check baseline
+        run: scripts/check-baseline.sh --exact
+      - name: Test core support feature
+        run: cargo test -p cadence-core --features test-support
+      - name: Test app support feature
+        run: cargo test -p cadence --features test-support
+      - name: Test MCP support feature
+        run: cargo test -p cadence-mcp --features test-support
+      - name: Test MCP fault matrix
+        run: cargo test -p cadence-mcp --features "test-support test-faults" --test fault_matrix
+      - name: Check version consistency
+        run: scripts/check-versions.sh
 
   frontend:
     name: Frontend

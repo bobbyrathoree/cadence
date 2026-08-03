@@ -14,28 +14,37 @@ read_json_version() {
 
 tauri_version="$(read_json_version "$root_dir/src-tauri/tauri.conf.json")"
 package_version="$(read_json_version "$root_dir/package.json")"
-cargo_version="$(
+cargo_versions="$(
   cargo metadata \
     --format-version 1 \
     --no-deps \
-    --manifest-path "$root_dir/src-tauri/Cargo.toml" |
+    --manifest-path "$root_dir/Cargo.toml" |
     node -e '
       let input = "";
       process.stdin.setEncoding("utf8");
       process.stdin.on("data", chunk => input += chunk);
       process.stdin.on("end", () => {
         const metadata = JSON.parse(input);
-        const cadence = metadata.packages.find(pkg => pkg.name === "cadence");
-        if (!cadence) process.exit(1);
-        process.stdout.write(cadence.version);
+        const names = ["cadence", "cadence-core", "cadence-mcp"];
+        const versions = names.map(name => {
+          const pkg = metadata.packages.find(candidate => candidate.name === name);
+          if (!pkg) process.exit(1);
+          return pkg.version;
+        });
+        process.stdout.write(versions.join("\t"));
       });
     '
 )"
+IFS=$'\t' read -r cadence_version core_version mcp_version <<< "$cargo_versions"
 
-if [[ "$cargo_version" != "$tauri_version" || "$package_version" != "$tauri_version" ]]; then
-  printf 'Version mismatch: tauri.conf.json=%s Cargo.toml=%s package.json=%s\n' \
-    "$tauri_version" "$cargo_version" "$package_version" >&2
+if [[ "$cadence_version" != "$tauri_version" ||
+      "$core_version" != "$tauri_version" ||
+      "$mcp_version" != "$tauri_version" ||
+      "$package_version" != "$tauri_version" ]]; then
+  printf 'Version mismatch: tauri.conf.json=%s cadence=%s cadence-core=%s cadence-mcp=%s package.json=%s\n' \
+    "$tauri_version" "$cadence_version" "$core_version" "$mcp_version" "$package_version" >&2
   exit 1
 fi
 
-printf 'Versions aligned: %s\n' "$tauri_version"
+printf 'Versions aligned: cadence, cadence-core, cadence-mcp, tauri.conf.json, package.json = %s\n' \
+  "$tauri_version"
