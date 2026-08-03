@@ -44,6 +44,21 @@ export interface PlaybookDraftPersistence {
   ) => Promise<unknown>;
 }
 
+export interface PlaybookDraftProgress {
+  playbookId: string;
+  createdStepIds: Array<{ key: string; stepId: string }>;
+}
+
+export class PlaybookDraftPersistenceError extends Error {
+  constructor(
+    readonly originalError: unknown,
+    readonly progress: PlaybookDraftProgress,
+  ) {
+    super(originalError instanceof Error ? originalError.message : String(originalError));
+    this.name = 'PlaybookDraftPersistenceError';
+  }
+}
+
 let draftStepSequence = 0;
 
 export function createDraftStep(
@@ -114,8 +129,17 @@ export async function persistPlaybookDraft(
       draft.title.trim(),
       draft.description.trim() || undefined,
     );
-    for (const step of draft.steps) {
-      await persistence.addStep(created.id, toStepSpec(step));
+    const progress: PlaybookDraftProgress = {
+      playbookId: created.id,
+      createdStepIds: [],
+    };
+    try {
+      for (const step of draft.steps) {
+        const added = await persistence.addStep(created.id, toStepSpec(step));
+        progress.createdStepIds.push({ key: step.key, stepId: added.id });
+      }
+    } catch (error) {
+      throw new PlaybookDraftPersistenceError(error, progress);
     }
     return created.id;
   }
@@ -171,6 +195,38 @@ export async function persistPlaybookDraft(
   }
 
   return playbookId;
+}
+
+export function applyPlaybookDraftProgress(
+  draft: PlaybookDraft,
+  progress: PlaybookDraftProgress,
+): PlaybookDraft {
+  const createdByKey = new Map(
+    progress.createdStepIds.map(({ key, stepId }) => [key, stepId]),
+  );
+  const steps = draft.steps.map((step) => {
+    const createdId = createdByKey.get(step.key);
+    return createdId ? { ...step, id: createdId } : cloneDraftStep(step);
+  });
+  const initialIds = new Set(
+    draft.initialSteps
+      .map((step) => step.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const initialSteps = draft.initialSteps.map(cloneDraftStep);
+  for (const step of steps) {
+    if (step.id && createdByKey.has(step.key) && !initialIds.has(step.id)) {
+      initialSteps.push(cloneDraftStep(step));
+      initialIds.add(step.id);
+    }
+  }
+
+  return {
+    ...draft,
+    playbookId: progress.playbookId,
+    steps,
+    initialSteps,
+  };
 }
 
 function stepToDraft(step: PlaybookStepWithPrompt): PlaybookDraftStep {

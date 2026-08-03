@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { useAppContext } from '../../lib/context';
 import {
+  applyPlaybookDraftProgress,
   createDraftStep,
   createPlaybookDraft,
   persistPlaybookDraft,
+  PlaybookDraftPersistenceError,
   validatePlaybookDraft,
   type PlaybookDraft,
   type PlaybookDraftStep,
@@ -209,6 +211,11 @@ export function PlaybookBuilder({ prompts }: Props) {
       setActivePlaybookId(playbookId);
       setPlaybookBuilderMode(null);
     } catch (saveError) {
+      if (saveError instanceof PlaybookDraftPersistenceError) {
+        setDraft((current) =>
+          applyPlaybookDraftProgress(current, saveError.progress),
+        );
+      }
       const message = String(saveError);
       setError(message);
       showToast(`Couldn't save playbook: ${message}`, 'error');

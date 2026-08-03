@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PlaybookStepWithPrompt } from './types';
 import {
+  applyPlaybookDraftProgress,
   createDraftStep,
   persistPlaybookDraft,
   type PlaybookDraft,
+  PlaybookDraftPersistenceError,
   type PlaybookDraftPersistence,
 } from './playbookDraft';
 
@@ -118,5 +120,45 @@ describe('playbook draft persistence', () => {
       'step-b',
       'created-prompt-c',
     ]);
+  });
+
+  it('retries a partial create without creating a second playbook', async () => {
+    const first = createDraftStep('single', 'first');
+    first.prompt_id = 'prompt-a';
+    const second = createDraftStep('single', 'second');
+    second.prompt_id = 'prompt-b';
+    const draft: PlaybookDraft = {
+      playbookId: null,
+      title: 'Workflow',
+      description: '',
+      steps: [first, second],
+      initialSteps: [],
+    };
+    const adapter = persistence();
+    vi.mocked(adapter.addStep)
+      .mockResolvedValueOnce(hydratedStep('step-a', 'prompt-a'))
+      .mockRejectedValueOnce(new Error('step 2 failed'))
+      .mockResolvedValueOnce(hydratedStep('step-b', 'prompt-b'));
+
+    let retryDraft: PlaybookDraft | null = null;
+    try {
+      await persistPlaybookDraft(draft, adapter);
+    } catch (error) {
+      expect(error).toBeInstanceOf(PlaybookDraftPersistenceError);
+      const persistenceError = error as PlaybookDraftPersistenceError;
+      expect(persistenceError.progress).toEqual({
+        playbookId: 'playbook-1',
+        createdStepIds: [{ key: 'first', stepId: 'step-a' }],
+      });
+      retryDraft = applyPlaybookDraftProgress(draft, persistenceError.progress);
+    }
+
+    expect(retryDraft).not.toBeNull();
+    await persistPlaybookDraft(retryDraft!, adapter);
+
+    expect(adapter.createPlaybook).toHaveBeenCalledTimes(1);
+    expect(adapter.addStep).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(adapter.addStep).mock.calls.map((call) => call[1].prompt_id))
+      .toEqual(['prompt-a', 'prompt-b', 'prompt-b']);
   });
 });
