@@ -6,6 +6,24 @@ usage() {
   exit 2
 }
 
+# TODO(B9): invoke this for both the loose app and the mounted-DMG copy when
+# verify-release.sh gains its v1.2 --unsigned flow and cadence-mcp sidecar.
+assert_v12_bundle_executables() {
+  local candidate_app="$1"
+  local executable_dir="$candidate_app/Contents/MacOS"
+  local actual
+  actual="$(
+    find "$executable_dir" -mindepth 1 -maxdepth 1 -type f -perm -111 \
+      -exec basename {} \; | LC_ALL=C sort
+  )"
+  local expected
+  expected=$'cadence\ncadence-mcp'
+  [[ "$actual" == "$expected" ]] || {
+    printf 'Unexpected bundled executables in %s:\n%s\n' "$executable_dir" "$actual" >&2
+    return 1
+  }
+}
+
 [[ $# -eq 2 ]] || usage
 
 app_path="$1"

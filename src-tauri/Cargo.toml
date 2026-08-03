@@ -38,3 +38,7 @@ tauri-plugin-clipboard-manager = "2"
 [[test]]
 name = "lifecycle_matrix"
 required-features = ["test-support"]
+
+[[test]]
+name = "api_fatal_process"
+required-features = ["test-support"]
