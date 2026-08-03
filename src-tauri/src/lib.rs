@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod commands;
+pub mod poller;
 pub mod search_window;
 pub mod state;
 

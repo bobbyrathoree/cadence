@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { KeyboardShortcut } from '../../lib/types';
+import type { McpBinaryLocation } from '../../lib/types';
+import { api } from '../../lib/api';
+import { renderMcpSnippets } from '../../lib/mcpSettings';
 import {
   SETTINGS_SCHEMA,
   type ToggleSettingDefinition,
@@ -29,6 +33,8 @@ export function SettingsModal({
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [updatingSettingId, setUpdatingSettingId] = useState<string | null>(null);
   const [settingsRetryCounter, setSettingsRetryCounter] = useState(0);
+  const [mcpLocation, setMcpLocation] = useState<McpBinaryLocation | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
 
   const existingBindings = useMemo(
     () => new Map(shortcuts.filter((s) => s.binding).map((s) => [s.binding, s.action])),
@@ -58,7 +64,9 @@ export function SettingsModal({
       ] as const),
     )
       .then((entries) => {
-        if (!cancelled) setSettingValues(Object.fromEntries(entries));
+        if (!cancelled) {
+          setSettingValues(Object.fromEntries(entries));
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -67,6 +75,20 @@ export function SettingsModal({
       })
       .finally(() => {
         if (!cancelled) setSettingsLoading(false);
+      });
+
+    api.settings
+      .getMcpBinaryLocation()
+      .then((location) => {
+        if (!cancelled) {
+          setMcpLocation(location);
+          setMcpError(null);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMcpError(`Couldn't resolve cadence-mcp: ${String(error)}`);
+        }
       });
 
     return () => {
@@ -243,6 +265,8 @@ export function SettingsModal({
             </div>
           )}
 
+          <McpSettingsPane location={mcpLocation} error={mcpError} />
+
           {/* Global section */}
           {globalShortcuts.length > 0 && (
             <div style={{ marginBottom: 16 }}>
@@ -312,6 +336,175 @@ export function SettingsModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+function McpSettingsPane({
+  location,
+  error,
+}: {
+  location: McpBinaryLocation | null;
+  error: string | null;
+}) {
+  const snippets = useMemo(
+    () => location ? renderMcpSnippets(location.path) : [],
+    [location],
+  );
+  const [selectedId, setSelectedId] = useState('claude-code');
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const selected = snippets.find((snippet) => snippet.id === selectedId) ?? snippets[0];
+
+  async function copy(label: string, text: string) {
+    try {
+      await writeText(text);
+      setCopyStatus(`${label} copied`);
+    } catch (copyError) {
+      setCopyStatus(`Couldn't copy: ${String(copyError)}`);
+    }
+  }
+
+  return (
+    <section style={{ marginBottom: 20 }} aria-labelledby="mcp-settings-heading">
+      <div id="mcp-settings-heading" style={sectionHeadingStyle}>
+        Model Context Protocol
+      </div>
+      {error && (
+        <div role="alert" style={{ fontSize: 11, color: '#ff453a' }}>
+          {error}
+        </div>
+      )}
+      {!error && !location && (
+        <div role="status" style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+          Resolving cadence-mcp...
+        </div>
+      )}
+      {location && selected && (
+        <>
+          {location.development && (
+            <div
+              role="note"
+              style={{
+                marginBottom: 8,
+                padding: '8px 10px',
+                borderRadius: 6,
+                color: '#ff9f0a',
+                background: 'color-mix(in srgb, #ff9f0a 10%, transparent)',
+                fontSize: 11,
+              }}
+            >
+              Development build: build cadence-mcp at the target path before registering it.
+            </div>
+          )}
+          <div
+            style={{
+              marginBottom: 10,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 10,
+              lineHeight: 1.45,
+              color: 'var(--text-secondary)',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {location.path}
+          </div>
+          <label
+            htmlFor="mcp-client"
+            style={{ display: 'block', marginBottom: 5, fontSize: 11, color: 'var(--text-secondary)' }}
+          >
+            Client
+          </label>
+          <select
+            id="mcp-client"
+            value={selected.id}
+            onChange={(event) => setSelectedId(event.target.value)}
+            style={{
+              width: '100%',
+              height: 30,
+              marginBottom: 10,
+              padding: '0 8px',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              color: 'var(--text-primary)',
+              background: 'var(--surface)',
+              fontSize: 12,
+            }}
+          >
+            {snippets.map((snippet) => (
+              <option key={snippet.id} value={snippet.id}>
+                {snippet.label}
+              </option>
+            ))}
+          </select>
+          <SnippetRow
+            label="Registration"
+            text={selected.registration}
+            onCopy={() => void copy('Registration', selected.registration)}
+          />
+          <SnippetRow
+            label="Enable MCP writes"
+            text={selected.writesEnabled}
+            onCopy={() => void copy('Writes configuration', selected.writesEnabled)}
+          />
+          {copyStatus && (
+            <div role="status" style={{ marginTop: 6, fontSize: 10, color: 'var(--text-secondary)' }}>
+              {copyStatus}
+            </div>
+          )}
+          <p style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.45, color: 'var(--text-secondary)' }}>
+            register, then run your client's MCP list command (e.g. /mcp in Claude Code)
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function SnippetRow({
+  label,
+  text,
+  onCopy,
+}: {
+  label: string;
+  text: string;
+  onCopy: () => void;
+}) {
+  return (
+    <div style={{ marginBottom: 9 }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{label}</span>
+        <button
+          type="button"
+          onClick={onCopy}
+          aria-label={`Copy ${label}`}
+          style={{
+            border: 0,
+            padding: '2px 4px',
+            background: 'transparent',
+            color: 'var(--accent)',
+            fontSize: 10,
+          }}
+        >
+          Copy
+        </button>
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          padding: '8px 10px',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          overflowX: 'auto',
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'anywhere',
+          fontSize: 10,
+          lineHeight: 1.45,
+          color: 'var(--text-primary)',
+          background: 'color-mix(in srgb, var(--border) 20%, transparent)',
+        }}
+      >
+        {text}
+      </pre>
+    </div>
   );
 }
 

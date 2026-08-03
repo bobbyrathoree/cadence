@@ -2,15 +2,18 @@
 
 mod tray;
 
+use std::path::Path;
 use std::process::{self, Command};
 
 use cadence_core::db_access::DbAccess;
+use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use cadence_lib::api::lifecycle::ApiLifecycle;
 use cadence_lib::commands;
 use cadence_lib::db;
 use cadence_lib::models::settings::{DEFAULT_GLOBAL_SEARCH_SHORTCUT, GLOBAL_SEARCH_ACTION};
+use cadence_lib::poller;
 use cadence_lib::search_window::{
     register_search_shortcut, search_window, Mode as SearchWindowMode,
 };
@@ -27,6 +30,36 @@ fn hide_search_window(app: tauri::AppHandle) {
 #[tauri::command]
 fn show_search_window(app: tauri::AppHandle) -> Result<(), String> {
     search_window(&app, SearchWindowMode::Show)
+}
+
+#[derive(Serialize)]
+struct McpBinaryLocation {
+    path: String,
+    development: bool,
+}
+
+#[tauri::command]
+fn get_mcp_binary_location(app: tauri::AppHandle) -> Result<McpBinaryLocation, String> {
+    let development = cfg!(debug_assertions);
+    let path = if development {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .ok_or_else(|| "Cadence could not resolve its workspace root".to_string())?
+            .join("target")
+            .join("debug")
+            .join("cadence-mcp")
+    } else {
+        app.path()
+            .executable_dir()
+            .map_err(|error| {
+                format!("Cadence could not resolve its executable directory: {error}")
+            })?
+            .join("cadence-mcp")
+    };
+    Ok(McpBinaryLocation {
+        path: path.to_string_lossy().into_owned(),
+        development,
+    })
 }
 
 fn main() {
@@ -87,7 +120,7 @@ fn run() -> Result<(), String> {
     let main = DbAccess::new(database);
     let app_state = AppState {
         main: main.clone(),
-        api: tokio::sync::Mutex::new(ApiLifecycle::for_application(database_path, main)?),
+        api: tokio::sync::Mutex::new(ApiLifecycle::for_application(database_path.clone(), main)?),
     };
 
     let app = tauri::Builder::default()
@@ -138,11 +171,14 @@ fn run() -> Result<(), String> {
             commands::handlers::reset_keyboard_shortcuts,
             commands::handlers::get_api_enabled,
             commands::handlers::set_api_enabled,
+            get_mcp_binary_location,
             hide_search_window,
             show_search_window,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            poller::start(handle.clone(), &database_path)?;
 
             // Set up native tray menu
             if let Err(e) = tray::setup_tray(&handle) {

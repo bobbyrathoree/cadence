@@ -132,3 +132,8 @@ export interface ApiStatus {
   enabled: boolean;
   port: number | null;
 }
+
+export interface McpBinaryLocation {
+  path: string;
+  development: boolean;
+}

@@ -6,6 +6,7 @@ import { SettingsModal } from './SettingsModal';
 const mocks = vi.hoisted(() => ({
   getApiEnabled: vi.fn(),
   setApiEnabled: vi.fn(),
+  getMcpBinaryLocation: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -13,6 +14,7 @@ vi.mock('../../lib/api', () => ({
     settings: {
       getApiEnabled: mocks.getApiEnabled,
       setApiEnabled: mocks.setApiEnabled,
+      getMcpBinaryLocation: mocks.getMcpBinaryLocation,
     },
   },
 }));
@@ -36,6 +38,10 @@ describe('SettingsModal local API setting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getApiEnabled.mockResolvedValue(false);
+    mocks.getMcpBinaryLocation.mockResolvedValue({
+      path: '/tmp/target/debug/cadence-mcp',
+      development: true,
+    });
   });
 
   afterEach(cleanup);
@@ -83,5 +89,15 @@ describe('SettingsModal local API setting', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Local API failed to start: listener unavailable',
     );
+  });
+
+  it('shows the resolved MCP path without exposing a database override', async () => {
+    renderSettings();
+
+    expect(await screen.findByText('/tmp/target/debug/cadence-mcp')).toBeVisible();
+    expect(screen.getByRole('note')).toHaveTextContent('Development build');
+    for (const snippet of screen.getAllByText(/claude mcp add cadence/)) {
+      expect(snippet).not.toHaveTextContent('CADENCE_DB_PATH');
+    }
   });
 });
