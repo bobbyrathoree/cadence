@@ -13,6 +13,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  clean-checkout:
+    name: Clean checkout without sidecar
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.x
+          cache: npm
+      - name: Assert release sidecar is not staged
+        run: |
+          test ! -e src-tauri/binaries/cadence-mcp-aarch64-apple-darwin
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const base = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          const overlay = JSON.parse(fs.readFileSync("src-tauri/tauri.release.conf.json", "utf8"));
+          if (base.bundle.externalBin !== undefined) {
+            throw new Error("base Tauri config must not require a sidecar");
+          }
+          const expected = { bundle: { externalBin: ["binaries/cadence-mcp"] } };
+          if (JSON.stringify(overlay) !== JSON.stringify(expected)) {
+            throw new Error("release overlay contains unexpected configuration");
+          }
+          NODE
+      - name: Compile Tauri development binary
+        run: cargo build -p cadence --bin cadence
+      - name: Check workspace without staged sidecar
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
   rust:
     name: Rust
     runs-on: macos-14
@@ -39,6 +71,29 @@ jobs:
         run: cargo test -p cadence-mcp --features "test-support test-faults" --test fault_matrix
       - name: Check version consistency
         run: scripts/check-versions.sh
+
+  feature-audit:
+    name: Release feature audit
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          targets: aarch64-apple-darwin
+          profile: minimal
+      - name: Test structural feature checker
+        run: python3 -m unittest scripts/tests/test_check_feature_graph.py
+      - name: Audit MCP release features
+        run: |
+          rustup run nightly-2026-07-15 cargo build --release -p cadence-mcp --target aarch64-apple-darwin --no-default-features --unit-graph -Z unstable-options > mcp-unit-graph.json
+          rustup run nightly-2026-07-15 cargo metadata --format-version 1 > cargo-metadata.json
+          python3 scripts/check_feature_graph.py mcp-unit-graph.json --root-package cadence-mcp --metadata cargo-metadata.json
+      - name: Audit application release features
+        run: |
+          rustup run nightly-2026-07-15 cargo build --release -p cadence --bins --features tauri/custom-protocol --target aarch64-apple-darwin --no-default-features --unit-graph -Z unstable-options > app-unit-graph.json
+          rustup run nightly-2026-07-15 cargo metadata --format-version 1 > cargo-metadata.json
+          python3 scripts/check_feature_graph.py app-unit-graph.json --root-package cadence --metadata cargo-metadata.json
 
   frontend:
     name: Frontend

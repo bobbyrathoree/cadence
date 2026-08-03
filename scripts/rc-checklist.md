@@ -1,57 +1,62 @@
-# Cadence v1.1 macOS RC Checklist
+# Cadence v1.2 macOS RC Checklist
 
-Run this checklist against the Apple Silicon release candidate built by
-`scripts/release.sh`. Record the artifact URL, commit SHA, macOS version, and
-tester initials with the release.
+Run this checklist against one Apple Silicon release candidate produced by `scripts/release.sh`. Record the artifact URL, commit SHA, macOS version, and tester initials with the release.
 
-## Signed Artifact
+## Unsigned Artifact
 
-- [ ] Download the DMG from the draft GitHub release. Do not test the local build output.
-- [ ] Run `scripts/verify-release.sh "/path/to/Cadence.app" "/path/to/Cadence_1.1.0_aarch64.dmg"` against the downloaded artifacts.
-- [ ] Apply the quarantine attribute and complete the mount, copy to `/Applications`, and launch steps printed by the verification script.
-- [ ] Confirm the first launch succeeds without Control-click, Open Anyway, or other Privacy & Security intervention.
+- [ ] Download the DMG from the draft GitHub release; do not use the local build output.
+- [ ] Confirm the downloaded DMG has `com.apple.quarantine`.
+- [ ] Open the DMG and drag `Cadence.app` to `/Applications`.
+- [ ] Confirm `/Applications/Cadence.app` remains quarantined.
+- [ ] Run `xattr -dr com.apple.quarantine /Applications/Cadence.app`.
+- [ ] Confirm quarantine is absent from the app and its nested `Contents/MacOS/cadence-mcp`.
+- [ ] Launch Cadence normally from `/Applications`.
 
-## Main Window
+## Main Window And Variables
 
-- [ ] Open Cadence from `/Applications`; the main window loads the existing library without a blank screen or CSP error.
-- [ ] Select and copy a prompt from the main window, paste into TextEdit, and confirm the primary variant content is exact.
-- [ ] Create, edit, reorder, and run a two-step Playbook, including one choice step.
-- [ ] Delete a prompt referenced by the Playbook; confirm usage is shown before deletion and the runner displays a skippable missing-prompt notice.
-- [ ] Create a manual collection and add then remove a prompt from the detail panel.
+- [ ] The existing library loads without a blank screen or CSP error.
+- [ ] Copy a prompt with no variables and confirm pasted bytes are exact.
+- [ ] Copy a prompt containing repeated variables; fill them and confirm every occurrence uses the same value.
+- [ ] Cancel variable filling and confirm the clipboard and usage count do not change.
+- [ ] Run a Playbook with single and choice steps; confirm a successful copy advances exactly once.
+- [ ] Use floating search variable filling; confirm blur does not hide it while filling and a clipboard error remains inline.
 
-## Global Shortcut And Search Window
+## Model Context Protocol
 
-- [ ] With Cadence unfocused, press `Cmd+Shift+P`; the search window appears and its query is selected.
-- [ ] Type a query, use Up and Down to select a result, press Enter, and confirm the primary variant pastes exactly into TextEdit.
-- [ ] Press `Cmd+Shift+P` again while the search window is visible; the global shortcut toggles it closed.
-- [ ] Reopen the search window, click another application, and confirm the search window hides on blur.
-- [ ] Use the tray Search command while the search window is already visible; it remains visible and focused.
+- [ ] In Settings, confirm the resolved path is `/Applications/Cadence.app/Contents/MacOS/cadence-mcp`.
+- [ ] Register Claude Code with `claude mcp add cadence --scope user -- /Applications/Cadence.app/Contents/MacOS/cadence-mcp`.
+- [ ] Run `/mcp` and confirm the Cadence server and seven read-only tools are listed.
+- [ ] Invoke `/mcp__cadence__<slug>` for a prompt with variables and confirm one interpolated user message is inserted.
+- [ ] Resolve `@cadence:cadence://prompt/<id>` and confirm the rendered prompt matches Cadence.
+- [ ] Call `search_prompts` and confirm ordered results from the current library.
+- [ ] Call MCP `record_copy` while a Cadence window is visible and confirm its usage display refreshes within 1 second.
+- [ ] Register the sidecar in Codex and run a tool-list/search smoke test.
+- [ ] Register the sidecar in Gemini and run a tool-list/search smoke test.
+- [ ] Record whether each client exposes MCP prompts and resources; these capabilities are client-dependent.
+- [ ] Re-register one client with `CADENCE_MCP_ALLOW_WRITES=1`; confirm `create_prompt` and `update_prompt_content` appear, then remove the write gate.
 
-## Tray And Exit
+## Local API And Crash Recovery
 
-- [ ] Confirm the tray menu contains Search, Open Cadence, and Quit Cadence.
-- [ ] Hide or cover the main window, then choose Open Cadence; the main window becomes visible and focused.
-- [ ] Enable the local API, choose Quit Cadence, and confirm `api.json` is removed and the recorded port refuses connections.
+- [ ] Enable the local API and confirm `api.json` exists with mode `0600`.
+- [ ] Authenticate to `/api/v1/prompts` using the published port and key.
+- [ ] Disable the API and confirm discovery is removed and the port refuses connections.
+- [ ] Enable the API, force-quit Cadence, confirm stale `api.json` remains, then relaunch and confirm startup replaces it with a new port/key.
 
-## Local API Setting
+## Wry Fatal Exit
 
-- [ ] Open Settings and confirm Enable local API is off on a fresh or upgraded install.
-- [ ] Enable it; confirm Settings shows no error and `api.json` exists with mode `0600`.
-- [ ] Use the file's port and key to call `/health` with Host `127.0.0.1:<port>` and a Bearer token; confirm HTTP 200.
-- [ ] Disable it; confirm `api.json` is removed and the port refuses connections before the toggle reports off.
+- [ ] On a disposable test account/database, set `PRAGMA user_version` above Cadence's supported version and launch the app.
+- [ ] Confirm the native Wry startup-fatal dialog appears with the newer-schema error.
+- [ ] Dismiss the dialog and confirm the Cadence process exits with code 1 rather than leaving either WebView running.
+- [ ] Restore or delete the disposable database before normal testing.
 
-## Native CSP
+## Window, Tray, And CSP
 
-Pinned policy:
-
-`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost`
-
-- [ ] In Safari Web Inspector for the main WebView, inspect the initial document response and confirm its Content-Security-Policy is the exact pinned policy.
-- [ ] Exercise prompt list, detail, import, Settings, and Playbook builder flows while monitoring the macOS Console for Cadence WebKit CSP violations; confirm none occur.
-- [ ] In Safari Web Inspector for the search WebView, inspect `search.html` and confirm the same exact policy.
-- [ ] Exercise search, preview, keyboard selection, copy, show, and blur-hide while monitoring the macOS Console; confirm no CSP violations occur.
+- [ ] `Cmd+Shift+P` opens floating search from another app; Enter copies and closes it.
+- [ ] The tray contains Search, Open Cadence, and Quit Cadence, and each command works.
+- [ ] Confirm the main and search documents use the pinned CSP and produce no CSP violations while exercising prompts, Settings, Playbooks, and search.
 
 ## Result
 
-- [ ] Every item above passes on the same signed and notarized RC.
-- [ ] Attach failures, Console excerpts, and reproduction steps to the release issue. Do not ship with unchecked or failed items.
+- [ ] Every automated gate in `scripts/verify-release.sh --unsigned` passed for this artifact.
+- [ ] Every applicable manual item above passed on the same RC.
+- [ ] Attach failures, logs, and reproduction steps to the release issue. Do not ship with unchecked or failed required items.

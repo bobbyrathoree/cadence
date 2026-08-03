@@ -34,9 +34,8 @@ src-tauri/              # Rust backend
   src/
     api/                # axum HTTP server + routes
     commands/           # Tauri IPC command handlers
-    db/                 # SQLite schema + connection
-    models/             # Data structs
-    services/           # Business logic (CRUD, search, import/export)
+crates/core/             # Shared database, models, and services
+crates/mcp/              # stdio MCP server and smoke client
 ```
 
 ### Build
@@ -45,16 +44,16 @@ src-tauri/              # Rust backend
 npm run tauri build
 ```
 
-Produces `Cadence.app` in `src-tauri/target/release/bundle/macos/`.
+Produces `Cadence.app` in `target/release/bundle/macos/`.
 
 ### Verify
 
 Run the same checks used by CI:
 
 ```bash
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 npx tsc --noEmit
 npm run build
 npx vitest run

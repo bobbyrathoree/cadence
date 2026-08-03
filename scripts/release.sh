@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+unset APPLE_SIGNING_IDENTITY
+unset APPLE_CERTIFICATE
+unset APPLE_CERTIFICATE_PASSWORD
+unset APPLE_ID
+unset APPLE_PASSWORD
+unset APPLE_TEAM_ID
+
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target="aarch64-apple-darwin"
-bundle_dir="$root_dir/src-tauri/target/$target/release/bundle"
+target_dir="$root_dir/target/$target/release"
+bundle_dir="$target_dir/bundle"
 app_path="$bundle_dir/macos/Cadence.app"
+sidecar_source="$target_dir/cadence-mcp"
+staged_sidecar="$root_dir/src-tauri/binaries/cadence-mcp-$target"
+smoke_path="$root_dir/target/release/cadence-mcp-smoke"
+hash_file="$bundle_dir/release-cdhashes.env"
 version="$(
   node -e '
     const fs = require("node:fs");
@@ -13,107 +25,94 @@ version="$(
   ' "$root_dir/src-tauri/tauri.conf.json"
 )"
 dmg_path="$bundle_dir/dmg/Cadence_${version}_aarch64.dmg"
+release_tmp="$(mktemp -d)"
 
-credential_names=(
-  APPLE_CERTIFICATE
-  APPLE_CERTIFICATE_PASSWORD
-  APPLE_SIGNING_IDENTITY
-  APPLE_ID
-  APPLE_PASSWORD
-  APPLE_TEAM_ID
-)
+cleanup() {
+  rm -rf "$release_tmp"
+  rm -f "$staged_sidecar"
+  rmdir "$root_dir/src-tauri/binaries" 2>/dev/null || true
+}
+trap cleanup EXIT
 
-any_apple_credentials=false
-for name in "${credential_names[@]}"; do
-  if [[ -n "${!name:-}" ]]; then
-    any_apple_credentials=true
-    break
-  fi
-done
-
-has_signing_source=false
-if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
-  has_signing_source=true
-elif [[ -n "${APPLE_CERTIFICATE:-}" && -n "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
-  has_signing_source=true
-fi
-
-has_notary_credentials=false
-if [[
-  -n "${APPLE_ID:-}" &&
-  -n "${APPLE_PASSWORD:-}" &&
-  -n "${APPLE_TEAM_ID:-}"
-]]; then
-  has_notary_credentials=true
-fi
-
-signed_release=false
-if [[ "$any_apple_credentials" == true ]]; then
-  if [[ "$has_signing_source" != true || "$has_notary_credentials" != true ]]; then
-    cat >&2 <<'EOF'
-ERROR: Apple release credentials are incomplete.
-
-Provide either:
-  APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD
-or:
-  APPLE_SIGNING_IDENTITY
-
-Also provide all notarization credentials:
-  APPLE_ID, APPLE_PASSWORD, and APPLE_TEAM_ID
-
-Refusing to fall back to an unsigned build while partial credentials are set.
-EOF
-    exit 1
-  fi
-  signed_release=true
-fi
+cdhash() {
+  local candidate="$1"
+  local hash
+  hash="$(
+    codesign -dv --verbose=4 "$candidate" 2>&1 |
+      sed -n 's/^CDHash=//p' |
+      head -n 1
+  )"
+  [[ -n "$hash" ]] || {
+    printf 'Could not read CDHash from %s\n' "$candidate" >&2
+    return 1
+  }
+  printf '%s' "$hash"
+}
 
 cd "$root_dir"
 "$root_dir/scripts/check-versions.sh"
 
-if [[ "$signed_release" == true ]]; then
-  printf 'Building signed and notarized arm64 release with Tauri...\n'
-  npm run tauri -- build --target "$target" --ci
-else
-  cat >&2 <<'EOF'
+printf 'Building arm64 cadence-mcp sidecar...\n'
+cargo build --release -p cadence-mcp --target "$target" --no-default-features
+[[ -f "$sidecar_source" ]] || {
+  printf 'Expected sidecar was not produced: %s\n' "$sidecar_source" >&2
+  exit 1
+}
 
-======================================================================
-WARNING: APPLE SIGNING AND NOTARIZATION CREDENTIALS ARE ABSENT.
-THIS BUILD IS UNSIGNED AND RELEASE ARTIFACTS MUST NOT SHIP.
-======================================================================
+printf 'Ad-hoc signing and staging cadence-mcp...\n'
+codesign -s - --force "$sidecar_source"
+mkdir -p "$(dirname "$staged_sidecar")"
+cp "$sidecar_source" "$staged_sidecar"
 
-EOF
-  npm run tauri -- build --target "$target" --ci --no-sign
-fi
-
+printf 'Building application bundle with the release-only sidecar overlay...\n'
+npm run tauri -- build \
+  --target "$target" \
+  --ci \
+  --no-sign \
+  --config src-tauri/tauri.release.conf.json \
+  --bundles app
 [[ -d "$app_path" ]] || {
   printf 'Expected application bundle was not produced: %s\n' "$app_path" >&2
   exit 1
 }
-[[ -f "$dmg_path" ]] || {
-  printf 'Expected DMG was not produced: %s\n' "$dmg_path" >&2
+
+printf 'Ad-hoc signing application bundle...\n'
+codesign -s - --force --deep "$app_path"
+
+EXPECTED_APP_CDHASH="$(cdhash "$app_path")"
+EXPECTED_SIDECAR_CDHASH="$(cdhash "$app_path/Contents/MacOS/cadence-mcp")"
+export EXPECTED_APP_CDHASH EXPECTED_SIDECAR_CDHASH
+mkdir -p "$bundle_dir"
+printf 'EXPECTED_APP_CDHASH=%s\nEXPECTED_SIDECAR_CDHASH=%s\n' \
+  "$EXPECTED_APP_CDHASH" \
+  "$EXPECTED_SIDECAR_CDHASH" >"$hash_file"
+
+printf 'Building host cadence-mcp-smoke client...\n'
+cargo build --release -p cadence-mcp --bin cadence-mcp-smoke
+[[ -x "$smoke_path" ]] || {
+  printf 'Expected smoke client was not produced: %s\n' "$smoke_path" >&2
   exit 1
 }
 
-if [[ "$signed_release" == true ]]; then
-  printf 'Submitting DMG for explicit notarization...\n'
-  xcrun notarytool submit "$dmg_path" \
-    --apple-id "$APPLE_ID" \
-    --password "$APPLE_PASSWORD" \
-    --team-id "$APPLE_TEAM_ID" \
-    --wait
-  xcrun stapler staple "$dmg_path"
-  "$root_dir/scripts/verify-release.sh" "$app_path" "$dmg_path"
-else
-  cat >&2 <<EOF
+printf 'Creating DMG directly from the signed application...\n'
+dmg_staging="$release_tmp/dmg-staging"
+mkdir -p "$dmg_staging" "$(dirname "$dmg_path")"
+cp -R "$app_path" "$dmg_staging/Cadence.app"
+ln -s /Applications "$dmg_staging/Applications"
+hdiutil create \
+  -volname Cadence \
+  -srcfolder "$dmg_staging" \
+  -ov \
+  -format UDZO \
+  "$dmg_path"
 
-======================================================================
-UNSIGNED BUILD COMPLETE. DO NOT UPLOAD OR DISTRIBUTE THESE ARTIFACTS.
-Signed-artifact verification was skipped because it must fail unsigned.
+cat <<EOF
+
+Unsigned arm64 release artifacts created.
 
 Application: $app_path
 DMG:         $dmg_path
-======================================================================
+CDHashes:    $hash_file
 
+Run scripts/verify-release.sh --unsigned before distribution.
 EOF
-fi

@@ -10,6 +10,7 @@ dist-ssr/
 build/
 target/
 src-tauri/target/
+src-tauri/binaries/cadence-mcp-*
 
 # Environment
 .env
@@ -63,3 +64,7 @@ e2e-*
 # Rust
 **/*.rs.bk
 *.pdb
+
+# Python
+__pycache__/
+*.pyc

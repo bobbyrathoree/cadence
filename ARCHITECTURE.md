@@ -1,52 +1,106 @@
 # Cadence Architecture
 
-This document records the v1.1 boundaries that must remain consistent across the Tauri UI, local API, and SQLite storage.
+This document records the v1.2 process, database, and service boundaries shared by the Tauri UI, local API, and MCP server.
 
-## Variant Model
+## Process And Connection Topology
 
-A prompt is a metadata container. It owns the title, description, favorite and pinned state, usage metadata, tags, and a `primary_variant_id`. Prompt text does not live on the prompt row.
+Cadence is an N-process local system over one SQLite database in WAL mode.
 
-Actual prompt content lives in `variants`. Each variant belongs to one prompt and carries its own label, content, content type, variables, ordering, and lifecycle timestamps. Copy, preview, search, import/export, and Playbook code must resolve content through variants. A transport that needs content hydrates the prompt with its active variants rather than introducing a second prompt-content source of truth.
+The application process owns:
 
-## SQLite Connection Topology
+1. A primary `DbAccess` connection for Tauri commands and lifecycle settings.
+2. A dedicated read-only peer connection for the `PRAGMA data_version` poller.
+3. An additional `DbAccess` connection while the opt-in local API is enabled.
 
-Cadence uses two file-backed SQLite connections:
+Every configured MCP client starts its own `cadence-mcp` process. Each process owns one peer connection and sets `PRAGMA query_only=ON` except inside an explicit, write-gated `WriteScope`.
 
-1. The primary connection serves Tauri IPC and app lifecycle work.
-2. A second connection exists only while the opt-in local API server is running.
+All connections enable foreign keys, use a 5-second busy timeout, and use `synchronous=NORMAL`. The application establishes WAL mode; peers require an up-to-date database to already be in WAL mode.
 
-Both connections use the same database in WAL mode. WAL permits readers to proceed while another connection writes, but SQLite still has one writer at a time. Every connection must enable foreign keys and use `synchronous = NORMAL` plus `busy_timeout = 5000`.
+## Database Location And Openers
 
-The busy timeout is a correctness dependency of this topology, not a tuning detail. Without it, short service-owned write transactions on one connection can make valid writes on the other fail immediately with `SQLITE_BUSY`. Mutations therefore use bounded, explicit transactions and keep network or UI work outside the transaction.
+The default database is `dirs::data_dir()/Cadence/cadence.db`. MCP may override it with an absolute UTF-8 `CADENCE_DB_PATH`; the application always uses its admitted default path.
+
+`open_app` opens read-write with create permission and may create the parent directory. `open_peer` opens read-write without create permission and returns `MissingFile` without creating a file or directory.
+
+Both openers apply timeout and foreign-key pragmas, then read `user_version` before any mutating pragma:
+
+- Version newer than the binary returns `SchemaNewer` without changing file bytes.
+- Negative version returns `Corrupt` without changing file bytes.
+- Versions below the current schema return `NeedsMigration`.
+- The current version returns `Ready`; a peer additionally requires WAL mode.
+
+Only the application migrates. MCP exits and asks the user to launch Cadence when migration is required.
+
+## Transactions And Health
+
+Service mutations use literal `BEGIN IMMEDIATE`, `COMMIT`, and observed `ROLLBACK` statements. Writer contention retries complete transaction cycles after 50 ms and 150 ms. Retry exhaustion returns a conflict without changing the database.
+
+A failed commit always attempts rollback and verifies autocommit state. A rollback failure, non-autocommit connection, poisoned mutex, or panic inside a database closure makes that connection unrecoverable. `Health::poison` writes one fatal diagnostic and terminates its owning production process:
+
+- The application and local API connections exit with code 1.
+- MCP exits with code 10.
+
+This is a crash-only recovery policy. SQLite WAL recovery handles the interrupted process on the next open. If the app crashes while its local API is enabled, `api.json` remains stale until the next app launch performs unconditional startup cleanup.
+
+`DbAccess` is the only shared wrapper. It owns one mutex and one panic boundary; transports cannot access the mutex, guard, or connection ownership directly.
 
 ## Service Boundary
 
-The Rust service layer is the source of truth. It owns validation, authorization-independent business rules, transaction boundaries, database mutation, FTS maintenance, and domain errors.
+`cadence-core` owns validation, business rules, transaction boundaries, database mutation, FTS maintenance, and domain errors. Tauri commands, axum routes, and MCP protocol methods are transport views over the same services.
 
-Tauri commands and axum routes are transport views over the same services. They deserialize transport DTOs, call one service contract, map the result to IPC or HTTP semantics, and emit transport-specific events. They do not contain direct SQL or duplicate business decisions. React is another view: it may manage drafts and presentation state, but persisted truth comes back through a service transport.
+Transport code deserializes DTOs, calls a service contract, and maps the result. It does not introduce a second source of business truth. React owns drafts and presentation state, while persisted state is always rehydrated from a Rust service.
+
+## MCP Transport
+
+`cadence-mcp` uses newline-framed JSON-RPC over stdio. Stdout is protocol-only after startup; help and version output are the only pre-transport exceptions. Diagnostics always go to stderr.
+
+Startup exit codes are:
+
+| Code | Meaning |
+|------|---------|
+| 2 | Database file missing |
+| 3 | Database schema requires app migration |
+| 4 | Database schema is newer than the MCP binary |
+| 5 | Corrupt database |
+| 6 | Location or I/O failure |
+| 8 | PRAGMA failure |
+| 10 | Connection became unrecoverable while serving |
+
+The server supports protocol versions `2025-11-25` and `2026-07-28`. It advertises tools, prompts, resources, and completion without list-changed notifications. Prompt and resource catalogs are capped at 100 entries; direct UUID resolution continues to work outside those catalogs. Full-text MCP search is also capped at 100 results.
+
+MCP writes are absent unless `CADENCE_MCP_ALLOW_WRITES=1`. Release feature audits ensure `test-support`, `test-faults`, and lifecycle test features do not resolve into either shipping root, and that no resolved `cadence-core` unit enables `test-support`.
+
+## Change Polling
+
+The application poller owns its peer connection in one async task. It reads `PRAGMA data_version` every 500 ms while either app window is visible and emits `db-changed` when the value differs.
+
+When both windows are hidden, it performs no database read and preserves its last-seen value. A commit made while hidden therefore emits on the first visible tick. Visibility query failures count as hidden. Three consecutive database read failures stop the poller with one warning; they do not crash the app.
+
+## Local API Discovery
+
+The optional API binds to `127.0.0.1`, uses a per-launch bearer key, and writes `api.json` with mode `0600`. Enable, startup, disable, and shutdown operations are serialized by `ApiLifecycle`.
+
+v1.2 deliberately preserves v1.1's single-app-instance assumption. Concurrent Cadence installations share the same discovery path and may replace or remove each other's `api.json`. Single-instance enforcement and cross-process discovery ownership are deferred.
+
+## Variant And Variable Models
+
+A prompt is a metadata container. Prompt content lives in active `variants`; `primary_variant_id` selects the default. Copy, preview, search, import/export, Playbooks, and MCP resolve content through variants rather than introducing prompt-level content.
+
+Rust and TypeScript share one variable grammar and one fixture corpus. `{{name}}` variables are fillable and `[PLACEHOLDER]` tokens are highlighted but not interpolated. Copy operations write the clipboard first, settle independently of usage accounting, and gate late UI effects by operation generation and component liveness.
+
+## Full-Text Search
+
+`prompts_fts` is a contentless FTS5 table. `fts_mapping` assigns stable integer FTS rowids to prompt UUIDs. Service mutations reindex flattened prompt metadata, active variant content, and tags; soft deletion removes both the FTS row and mapping.
+
+Search is limit-only and capped at 100 results. List and collection views use deterministic offset pagination, which may repeat or skip an item if another writer mutates ordering between page requests. The UI deduplicates loaded prompt IDs, and refresh re-reads current ordering.
 
 ## Progressive Disclosure
 
 Cadence exposes complexity in a ladder:
 
-1. **Library:** browse, search, favorite, and copy individual prompts.
-2. **Organization:** add tags, variants, and manual collections as the library grows.
-3. **Workflow:** compose repeated sequences into Playbooks and run one active session.
+1. Library: browse, search, favorite, fill variables, and copy prompts.
+2. Organization: add tags, variants, and manual collections.
+3. Workflow: compose and run Playbooks.
+4. Integration: opt into the local API or configure MCP clients.
 
-This is a product and architecture constraint. Lower levels must remain useful without configuring higher levels, and storage or service contracts must not require a user to adopt Collections or Playbooks before basic prompt workflows work.
-
-## Pagination Limitation
-
-List and collection views use deterministic offset pagination. Offset pagination is not stable under mutation: an insert, delete, or reorder between page requests can shift later offsets, causing one fetch to skip or repeat an item.
-
-Cadence accepts this limitation for the v1.1 single-user local model. The UI deduplicates loaded pages by prompt ID, and a refresh re-reads the current ordering. Cursor pagination is deferred unless synchronization or multi-writer use makes mutation-stable traversal necessary.
-
-## Full-text Search
-
-`prompts_fts` is a contentless FTS5 table. SQLite does not copy canonical prompt data into or out of it automatically, and a contentless table cannot use an external-content `rebuild` as its recovery mechanism.
-
-`fts_mapping` assigns a stable integer FTS rowid to each prompt ID. Search joins FTS matches through that mapping instead of treating a text UUID as an FTS rowid. Service mutations reindex the flattened searchable document when prompt metadata, non-deleted variant content, primary-variant selection, or tags change. Soft deletion evicts both the FTS row and mapping.
-
-Search is limit-only and capped at 100 results. Unlike list and collection views, full-text search does not expose offset pagination.
-
-The relational prompt, variant, and tag tables remain canonical. Migrations repair the derived index by wiping and repopulating FTS rows and mappings in one transaction, advancing `PRAGMA user_version` only after the rebuild succeeds.
+Lower levels remain useful without configuring higher levels.

@@ -92,6 +92,64 @@ curl "http://localhost:$PORT/api/v1/search?q=code+review" \
 
 The API trusts the local macOS user account: another process running as you may be able to read the discovery file and use the API. Bearer authentication, exact Host validation, and no CORS access reduce browser-based attacks; they do not protect against untrusted software already running under your account.
 
+### Model Context Protocol
+
+Cadence includes a read-only MCP server so compatible AI clients can list, search, and retrieve prompts and Playbooks directly from your local library. MCP prompts and resources are also available in clients that support those capabilities.
+
+The installed server path is:
+
+```text
+/Applications/Cadence.app/Contents/MacOS/cadence-mcp
+```
+
+Register it with a client:
+
+**Claude Code**
+
+```bash
+claude mcp add cadence --scope user -- /Applications/Cadence.app/Contents/MacOS/cadence-mcp
+```
+
+**`.mcp.json`**
+
+```json
+{"mcpServers":{"cadence":{"command":"/Applications/Cadence.app/Contents/MacOS/cadence-mcp"}}}
+```
+
+**Codex**
+
+```toml
+[mcp_servers.cadence]
+command = "/Applications/Cadence.app/Contents/MacOS/cadence-mcp"
+args = []
+```
+
+**Gemini**
+
+```json
+{"mcpServers":{"cadence":{"command":"/Applications/Cadence.app/Contents/MacOS/cadence-mcp"}}}
+```
+
+The server exposes prompt creation and content updates only when
+`CADENCE_MCP_ALLOW_WRITES=1` is set in that client's MCP environment:
+
+```bash
+claude mcp add cadence --scope user --env CADENCE_MCP_ALLOW_WRITES=1 -- /Applications/Cadence.app/Contents/MacOS/cadence-mcp
+```
+
+```json
+{"mcpServers":{"cadence":{"command":"/Applications/Cadence.app/Contents/MacOS/cadence-mcp","env":{"CADENCE_MCP_ALLOW_WRITES":"1"}}}}
+```
+
+```toml
+[mcp_servers.cadence]
+command = "/Applications/Cadence.app/Contents/MacOS/cadence-mcp"
+args = []
+env = { CADENCE_MCP_ALLOW_WRITES = "1" }
+```
+
+After registration, run the client's MCP list command, such as `/mcp` in Claude Code. Cadence resolves its normal application database automatically. `CADENCE_DB_PATH` is an advanced absolute-path override intended for isolated development and testing; normal client configuration should omit it.
+
 ### Import & Export
 
 - **JSON** — Import and export prompt titles, descriptions, primary content, favorite state, tags, and additional variant labels/content
@@ -123,20 +181,19 @@ Cadence ships with a curated set of 6 prompts and a sample Playbook, so you can 
 
 ### Unsigned Release Build
 
-Cadence v1.1 release builds are unsigned. Only install artifacts downloaded from the official GitHub Releases page.
+Cadence v1.2 release builds use ad-hoc signatures but are not Apple notarized. Only install artifacts downloaded from the official GitHub Releases page.
 
 1. Download and open `Cadence_*.dmg`.
 2. Drag `Cadence.app` into **Applications**, then eject the disk image.
-3. In Finder, open **Applications**, Control-click `Cadence`, and choose **Open**.
-4. In the Gatekeeper dialog, click **Open**.
+3. Remove quarantine from the installed application:
 
-If macOS does not offer **Open** in that dialog:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Cadence.app
+   ```
 
-1. Try to open Cadence once, then open **System Settings > Privacy & Security**.
-2. Scroll to **Security** and click **Open Anyway** next to the Cadence warning.
-3. Authenticate if prompted, then click **Open** in the confirmation dialog.
+4. Launch Cadence from **Applications**.
 
-These Gatekeeper steps are required only for the current unsigned build.
+The recursive command also removes quarantine from the nested `cadence-mcp` binary. Do not de-quarantine or run binaries obtained from any other source.
 
 ### From Source
 
@@ -149,7 +206,7 @@ npm ci
 npm run tauri build
 ```
 
-The built app will be at `src-tauri/target/release/bundle/macos/Cadence.app`.
+The built app will be at `target/release/bundle/macos/Cadence.app`.
 
 ### Development
 
@@ -161,17 +218,17 @@ This starts both the Vite dev server and the Tauri app with hot reload. Running 
 
 ## Architecture
 
-Cadence is built as a **Rust-core hybrid** — the Rust backend is the product, the React UI is a view.
+Cadence is built as a **Rust-core hybrid** — the shared Rust core is used by both the Tauri application and the MCP sidecar.
 
 ```
 Clients:
-  [Main Window]  [Floating Search]  [Menu Bar]  [Scripts / Agents]
-       |               |                |              |
-  [Tauri IPC]    [Tauri IPC]     [Native NSMenu]  [HTTP API]
-       |               |                              |
-       +-------+-------+------------------------------+
-               |
-        [RUST CORE]
+  [Main Window]  [Floating Search]  [Scripts]  [MCP Clients...]
+       |               |                |             |
+  [Tauri IPC]    [Tauri IPC]      [Local API]   [cadence-mcp...]
+       |               |                |             |
+       +---------------+--------+-------+-------------+
+                                |
+                         [cadence-core]
         ├── Prompt Service     (CRUD + variants)
         ├── Tag Service        (flat, namespaced)
         ├── Collection Service (manual + smart filters)
@@ -184,12 +241,13 @@ Clients:
 
 **Key decisions:**
 - **Local-first** — everything runs on your machine, no cloud dependency
-- **SQLite + WAL mode** — coordinates the UI and opt-in API database connections
+- **SQLite + WAL mode** — coordinates the app, opt-in API, poller, and MCP processes
 - **FTS5 full-text search** — prefix search across prompt metadata, content, and tags
 - **Separate API server** — runs on a background task only while the local API is enabled
+- **stdio MCP sidecar** — one read-mostly process and database connection per client
 - **Soft deletes** — sync-ready architecture for future cloud backup
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the v1.1 data and service contracts.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the v1.2 process, database, and service contracts.
 
 ### Tech Stack
 
