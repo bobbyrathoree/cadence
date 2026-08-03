@@ -47,4 +47,6 @@ Cadence accepts this limitation for the v1.1 single-user local model. The UI ded
 
 `fts_mapping` assigns a stable integer FTS rowid to each prompt ID. Search joins FTS matches through that mapping instead of treating a text UUID as an FTS rowid. Service mutations reindex the flattened searchable document when prompt metadata, non-deleted variant content, primary-variant selection, or tags change. Soft deletion evicts both the FTS row and mapping.
 
+Search is limit-only and capped at 100 results. Unlike list and collection views, full-text search does not expose offset pagination.
+
 The relational prompt, variant, and tag tables remain canonical. Migrations repair the derived index by wiping and repopulating FTS rows and mappings in one transaction, advancing `PRAGMA user_version` only after the rebuild succeeds.
