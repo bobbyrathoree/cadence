@@ -1,62 +1,13 @@
-import React, { useMemo } from 'react';
 import { getPrimaryVariant } from '../../lib/prompt';
 import type { PromptWithVariants } from '../../lib/types';
+import { VariableHighlighter } from '../shared/VariableHighlighter';
 
 interface Props {
   prompt: PromptWithVariants | null;
 }
 
-/**
- * Highlight template variables in prompt content.
- * Mustache-style vars get blue highlights, bracket placeholders get orange.
- */
-function highlightVariables(content: string): React.ReactNode[] {
-  const pattern = /(\{\{[^}]+\}\}|\[[A-Z][A-Z _]*\])/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(content.slice(lastIndex, match.index));
-    }
-
-    const token = match[0];
-    const isMustache = token.startsWith('{{');
-
-    parts.push(
-      <span
-        key={`${match.index}-${token}`}
-        className="rounded px-1"
-        style={{
-          background: isMustache
-            ? 'color-mix(in srgb, #007aff 18%, transparent)'
-            : 'color-mix(in srgb, #ff9500 18%, transparent)',
-          color: isMustache ? '#4dabff' : '#ffb84d',
-          fontWeight: 500,
-        }}
-      >
-        {token}
-      </span>,
-    );
-
-    lastIndex = match.index + token.length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push(content.slice(lastIndex));
-  }
-
-  return parts;
-}
-
 export function SearchPreview({ prompt }: Props) {
   const variant = prompt ? getPrimaryVariant(prompt) ?? null : null;
-
-  const highlightedContent = useMemo(() => {
-    if (!variant) return [];
-    return highlightVariables(variant.content);
-  }, [variant]);
 
   if (!prompt) {
     return (
@@ -123,7 +74,7 @@ export function SearchPreview({ prompt }: Props) {
             margin: 0,
           }}
         >
-          {highlightedContent}
+          {variant && <VariableHighlighter content={variant.content} />}
         </pre>
       </div>
 

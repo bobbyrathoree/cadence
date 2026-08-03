@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { getPrimaryVariant } from '../../lib/prompt';
 import type { PlaybookStepWithPrompt } from '../../lib/types';
+import { VariableHighlighter } from '../shared/VariableHighlighter';
 
 export type StepStatus = 'completed' | 'active' | 'pending';
 
@@ -11,6 +12,7 @@ interface Props {
   isLast: boolean;
   onCopy: (target: PlaybookCopyTarget) => void;
   onSkip?: () => void;
+  busy?: boolean;
 }
 
 export interface PlaybookCopyTarget {
@@ -168,6 +170,7 @@ export function PlaybookStep({
   isLast,
   onCopy,
   onSkip,
+  busy = false,
 }: Props) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
@@ -329,6 +332,7 @@ export function PlaybookStep({
                   return (
                     <button
                       key={cp.id}
+                      disabled={busy}
                       className="cursor-default outline-none rounded-lg"
                       style={{
                         padding: '8px 16px',
@@ -391,12 +395,13 @@ export function PlaybookStep({
                       background: 'color-mix(in srgb, var(--text-primary) 4%, transparent)',
                     }}
                   >
-                    {activeVariant.content}
+                    <VariableHighlighter content={activeVariant.content} />
                   </pre>
                 )}
 
                 {/* Copy button */}
                 <button
+                  disabled={busy}
                   className="cursor-default outline-none"
                   style={{
                     padding: '8px 20px',
@@ -424,7 +429,7 @@ export function PlaybookStep({
                     }
                   }}
                 >
-                  Copy Step {stepNumber}
+                  {busy ? 'Copying...' : `Copy Step ${stepNumber}`}
                 </button>
               </>
             )}

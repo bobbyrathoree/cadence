@@ -9,6 +9,11 @@ import React, {
 import { usePromptDetail } from '../../lib/hooks';
 import { useAppContext } from '../../lib/context';
 import { api } from '../../lib/api';
+import {
+  canApplyCopyEffect,
+  startCopy,
+  type CopyOperation,
+} from '../../lib/copy';
 import { getPrimaryVariant } from '../../lib/prompt';
 import {
   createPromptDraftState,
@@ -24,53 +29,11 @@ import { TagPills } from './TagPills';
 import { PromptLifecycleControls } from './PromptLifecycleControls';
 import { CopyButton } from '../shared/CopyButton';
 import { Modal } from '../shared/Modal';
+import { VariableHighlighter } from '../shared/VariableHighlighter';
+import { FillVariablesModal } from '../shared/FillVariablesModal';
 
 interface Props {
   promptId: string;
-}
-
-/**
- * Highlight template variables in prompt content.
- * Mustache-style vars get blue highlights, bracket placeholders get orange.
- */
-function highlightVariables(content: string): React.ReactNode[] {
-  const pattern = /(\{\{[^}]+\}\}|\[[A-Z][A-Z _]*\])/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(content.slice(lastIndex, match.index));
-    }
-
-    const token = match[0];
-    const isMustache = token.startsWith('{{');
-
-    parts.push(
-      <span
-        key={`${match.index}-${token}`}
-        className="rounded px-1"
-        style={{
-          background: isMustache
-            ? 'color-mix(in srgb, #007aff 18%, transparent)'
-            : 'color-mix(in srgb, #ff9500 18%, transparent)',
-          color: isMustache ? '#4dabff' : '#ffb84d',
-          fontWeight: 500,
-        }}
-      >
-        {token}
-      </span>,
-    );
-
-    lastIndex = match.index + token.length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push(content.slice(lastIndex));
-  }
-
-  return parts;
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -105,6 +68,7 @@ export function PromptDetail({ promptId }: Props) {
     refreshCounter,
     triggerRefresh,
     showToast,
+    setSelectedVariantByPrompt,
   } = useAppContext();
   const {
     data: prompt,
@@ -113,6 +77,10 @@ export function PromptDetail({ promptId }: Props) {
     refreshError,
   } = usePromptDetail(promptId, refreshCounter);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [activeCopy, setActiveCopy] = useState<CopyOperation | null>(null);
+  const [fillCopy, setFillCopy] = useState<CopyOperation | null>(null);
+  const copyRef = useRef<CopyOperation | null>(null);
+  const liveRef = useRef(true);
 
   // Edit-mode draft state
   const [drafts, dispatchDraft] = useReducer(
@@ -144,6 +112,73 @@ export function PromptDetail({ promptId }: Props) {
     return prompt.variants.find((v) => v.id === selectedVariantId) ?? prompt.variants[0] ?? null;
   }, [prompt, selectedVariantId]);
 
+  useEffect(() => {
+    liveRef.current = true;
+    return () => {
+      liveRef.current = false;
+      copyRef.current?.fill?.cancel();
+      copyRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    copyRef.current?.fill?.cancel();
+    copyRef.current = null;
+    setActiveCopy(null);
+    setFillCopy(null);
+  }, [promptId, selectedVariantId]);
+
+  useEffect(() => {
+    if (!selectedVariant) {
+      setSelectedVariantByPrompt(null);
+      return;
+    }
+    setSelectedVariantByPrompt({
+      promptId,
+      variantId: selectedVariant.id,
+    });
+    return () => setSelectedVariantByPrompt(null);
+  }, [promptId, selectedVariant, setSelectedVariantByPrompt]);
+
+  const handleCopy = useCallback((): Promise<'copied' | 'error' | 'cancelled'> => {
+    if (!selectedVariant || activeCopy) {
+      return Promise.resolve(activeCopy ? 'cancelled' : 'error');
+    }
+    const operation = startCopy({
+      content: selectedVariant.content,
+      promptId,
+      variantId: selectedVariant.id,
+      onAccounting: (ok, key) => {
+        if (!canApplyCopyEffect(copyRef.current, key, liveRef.current)) return;
+        if (!ok) {
+          showToast("Copied, but couldn't record usage", 'error');
+        }
+      },
+    });
+    copyRef.current = operation;
+    setActiveCopy(operation);
+    if (operation.fill) setFillCopy(operation);
+
+    void operation.settled.then((result) => {
+      if (!canApplyCopyEffect(copyRef.current, operation.key, liveRef.current)) {
+        return;
+      }
+      setActiveCopy(null);
+      setFillCopy(null);
+      if (result.kind === 'copied') {
+        showToast('Copied to clipboard');
+      } else if (result.kind === 'clipboard_error') {
+        showToast(`Couldn't copy prompt: ${result.message}`, 'error');
+      }
+    });
+
+    return operation.settled.then((result) => {
+      if (result.kind === 'copied') return 'copied';
+      if (result.kind === 'cancelled') return 'cancelled';
+      return 'error';
+    });
+  }, [activeCopy, promptId, selectedVariant, showToast]);
+
   // Seed only missing draft records. Same-prompt refetches preserve existing drafts.
   useEffect(() => {
     if (isEditing && prompt?.id === promptId && selectedVariant) {
@@ -161,11 +196,6 @@ export function PromptDetail({ promptId }: Props) {
     const frame = requestAnimationFrame(() => titleInputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [isEditing]);
-
-  const highlightedContent = useMemo(() => {
-    if (!selectedVariant) return [];
-    return highlightVariables(selectedVariant.content);
-  }, [selectedVariant]);
 
   const activeVariantDraft = selectedVariantId
     ? drafts.variants.get(selectedVariantId) ?? null
@@ -445,11 +475,7 @@ export function PromptDetail({ promptId }: Props) {
           ) : (
             <>
               {selectedVariant && (
-                <CopyButton
-                  content={selectedVariant.content}
-                  promptId={prompt.id}
-                  variantId={selectedVariant.id}
-                />
+                <CopyButton onClick={handleCopy} />
               )}
               <button
                 onClick={() => setIsEditing(true)}
@@ -623,7 +649,9 @@ export function PromptDetail({ promptId }: Props) {
               margin: 0,
             }}
           >
-            {highlightedContent}
+            {selectedVariant && (
+              <VariableHighlighter content={selectedVariant.content} />
+            )}
           </pre>
         )}
       </div>
@@ -698,6 +726,21 @@ export function PromptDetail({ promptId }: Props) {
           </button>
         </div>
       </Modal>
+      {fillCopy?.fill && selectedVariant && (
+        <FillVariablesModal
+          id="fill-prompt-variables"
+          content={selectedVariant.content}
+          names={fillCopy.fill.names}
+          onConfirm={(values) => {
+            fillCopy.fill?.resume(values);
+            setFillCopy(null);
+          }}
+          onCancel={() => {
+            fillCopy.fill?.cancel();
+            setFillCopy(null);
+          }}
+        />
+      )}
     </div>
   );
 }

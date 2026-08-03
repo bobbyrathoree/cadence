@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -7,6 +7,9 @@ import { FloatingSearch } from './components/search/FloatingSearch';
 export function SearchApp() {
   const [revision, setRevision] = useState(0);
   const [shownRevision, setShownRevision] = useState(0);
+  const [fillActive, setFillActive] = useState(false);
+  const fillActiveRef = useRef(false);
+  fillActiveRef.current = fillActive;
 
   useEffect(() => {
     const unlistenDbChanged = listen('db-changed', () => {
@@ -26,6 +29,7 @@ export function SearchApp() {
   useEffect(() => {
     const unlistenFocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (!focused) {
+        if (fillActiveRef.current) return;
         invoke('hide_search_window').catch(console.error);
       }
     });
@@ -38,6 +42,7 @@ export function SearchApp() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        if (fillActiveRef.current) return;
         invoke('hide_search_window').catch(console.error);
       }
     }
@@ -58,7 +63,11 @@ export function SearchApp() {
         flexDirection: 'column',
       }}
     >
-      <FloatingSearch revision={revision} shownRevision={shownRevision} />
+      <FloatingSearch
+        revision={revision}
+        shownRevision={shownRevision}
+        onFillActiveChange={setFillActive}
+      />
     </div>
   );
 }

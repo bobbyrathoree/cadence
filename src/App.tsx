@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { AppProvider, useAppContext } from './lib/context';
 import { api } from './lib/api';
+import {
+  canApplyCopyEffect,
+  startCopy,
+  type CopyOperation,
+} from './lib/copy';
 import {
   useCollectionPrompts,
   useKeyboardShortcuts,
@@ -16,6 +20,7 @@ import { DetailPanel } from './components/detail/DetailPanel';
 import { Toast } from './components/shared/Toast';
 import { ImportModal } from './components/import/ImportModal';
 import { SettingsModal } from './components/settings/SettingsModal';
+import { FillVariablesModal } from './components/shared/FillVariablesModal';
 
 function AppContent() {
   const [lastApiError, setLastApiError] = useState<string | null>(null);
@@ -24,6 +29,7 @@ function AppContent() {
     activeCollectionId,
     selectedPromptId,
     setSelectedPromptId,
+    selectedVariantByPrompt,
     refreshCounter,
     triggerRefresh,
     isCreating,
@@ -41,6 +47,65 @@ function AppContent() {
     showToast,
     hideToast,
   } = useAppContext();
+  const [activeCopy, setActiveCopy] = useState<CopyOperation | null>(null);
+  const [fillCopy, setFillCopy] = useState<{
+    operation: CopyOperation;
+    content: string;
+  } | null>(null);
+  const copyRef = useRef<CopyOperation | null>(null);
+  const liveRef = useRef(true);
+  const selectedPromptIdRef = useRef(selectedPromptId);
+  selectedPromptIdRef.current = selectedPromptId;
+
+  useEffect(() => {
+    liveRef.current = true;
+    return () => {
+      liveRef.current = false;
+      copyRef.current?.fill?.cancel();
+      copyRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    copyRef.current?.fill?.cancel();
+    copyRef.current = null;
+    setActiveCopy(null);
+    setFillCopy(null);
+  }, [selectedPromptId]);
+
+  const beginAppCopy = useCallback(
+    (content: string, promptId: string, variantId: string) => {
+      if (activeCopy) return;
+      const operation = startCopy({
+        content,
+        promptId,
+        variantId,
+        onAccounting: (ok, key) => {
+          if (!canApplyCopyEffect(copyRef.current, key, liveRef.current)) return;
+          if (!ok) {
+            showToast("Copied, but couldn't record usage", 'error');
+          }
+        },
+      });
+      copyRef.current = operation;
+      setActiveCopy(operation);
+      if (operation.fill) setFillCopy({ operation, content });
+
+      void operation.settled.then((result) => {
+        if (!canApplyCopyEffect(copyRef.current, operation.key, liveRef.current)) {
+          return;
+        }
+        setActiveCopy(null);
+        setFillCopy(null);
+        if (result.kind === 'copied') {
+          showToast('Copied to clipboard');
+        } else if (result.kind === 'clipboard_error') {
+          showToast(`Couldn't copy prompt: ${result.message}`, 'error');
+        }
+      });
+    },
+    [activeCopy, showToast],
+  );
 
   const promptFilter =
     activeView === 'favorites'
@@ -154,21 +219,37 @@ function AppContent() {
           break;
         }
         case 'copy_selected': {
-          if (!selectedPromptId) return;
+          if (!selectedPromptId || activeCopy) return;
+          const requestedPromptId = selectedPromptId;
           api.prompts
-            .get(selectedPromptId)
-            .then(async (prompt) => {
-              const primaryVariant = getPrimaryVariant(prompt);
-
-              if (primaryVariant) {
-                await writeText(primaryVariant.content);
-                await api.prompts.recordCopy(prompt.id, primaryVariant.id);
-                showToast('Copied to clipboard');
+            .get(requestedPromptId)
+            .then((prompt) => {
+              if (
+                !liveRef.current ||
+                selectedPromptIdRef.current !== requestedPromptId
+              ) {
+                return;
+              }
+              const registeredVariant =
+                selectedVariantByPrompt?.promptId === prompt.id
+                  ? prompt.variants.find(
+                      (variant) =>
+                        variant.id === selectedVariantByPrompt.variantId,
+                    )
+                  : null;
+              const variant = registeredVariant ?? getPrimaryVariant(prompt);
+              if (variant) {
+                beginAppCopy(variant.content, prompt.id, variant.id);
               }
             })
-            .catch((err) =>
-              showToast(`Couldn't copy prompt: ${String(err)}`, 'error'),
-            );
+            .catch((err) => {
+              if (
+                liveRef.current &&
+                selectedPromptIdRef.current === requestedPromptId
+              ) {
+                showToast(`Couldn't copy prompt: ${String(err)}`, 'error');
+              }
+            });
           break;
         }
         case 'deselect': {
@@ -203,7 +284,7 @@ function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPromptId, displayedPromptIds, shortcutMap, setSelectedPromptId, showToast, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen, hasOpenModal]);
+  }, [selectedPromptId, selectedVariantByPrompt, displayedPromptIds, shortcutMap, setSelectedPromptId, showToast, isCreating, setIsCreating, isEditing, setIsEditing, requestEditExit, setIsImportOpen, setIsSettingsOpen, hasOpenModal, activeCopy, beginAppCopy]);
 
   // Listen for cross-window "db-changed" events from Tauri
   useEffect(() => {
@@ -229,6 +310,7 @@ function AppContent() {
   return (
     <div
       className="flex h-screen overflow-hidden"
+      aria-busy={activeCopy !== null}
       style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
       <Sidebar />
@@ -265,6 +347,21 @@ function AppContent() {
           await api.settings.resetShortcuts();
         }}
       />
+      {fillCopy?.operation.fill && (
+        <FillVariablesModal
+          id="fill-shortcut-variables"
+          content={fillCopy.content}
+          names={fillCopy.operation.fill.names}
+          onConfirm={(values) => {
+            fillCopy.operation.fill?.resume(values);
+            setFillCopy(null);
+          }}
+          onCancel={() => {
+            fillCopy.operation.fill?.cancel();
+            setFillCopy(null);
+          }}
+        />
+      )}
     </div>
   );
 }

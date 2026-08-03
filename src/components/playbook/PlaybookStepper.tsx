@@ -1,12 +1,17 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../../lib/api';
+import {
+  canApplyCopyEffect,
+  startCopy,
+  type CopyOperation,
+} from '../../lib/copy';
 import { useAppContext } from '../../lib/context';
 import { usePlaybookSession } from '../../lib/hooks';
 import { getPlaybookProgress } from '../../lib/playbook';
 import type { PlaybookWithSteps } from '../../lib/types';
 import { PlaybookStep } from './PlaybookStep';
 import type { PlaybookCopyTarget, StepStatus } from './PlaybookStep';
+import { FillVariablesModal } from '../shared/FillVariablesModal';
 
 interface Props {
   playbookId: string;
@@ -16,6 +21,13 @@ export function PlaybookStepper({ playbookId }: Props) {
   const [playbook, setPlaybook] = useState<PlaybookWithSteps | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<Error | null>(null);
+  const [activeCopy, setActiveCopy] = useState<CopyOperation | null>(null);
+  const [fillCopy, setFillCopy] = useState<{
+    operation: CopyOperation;
+    content: string;
+  } | null>(null);
+  const copyRef = useRef<CopyOperation | null>(null);
+  const liveRef = useRef(true);
   const {
     refreshCounter,
     triggerRefresh,
@@ -24,6 +36,22 @@ export function PlaybookStepper({ playbookId }: Props) {
   } = useAppContext();
   const { data: session, error: sessionError } =
     usePlaybookSession(refreshCounter);
+
+  useEffect(() => {
+    liveRef.current = true;
+    return () => {
+      liveRef.current = false;
+      copyRef.current?.fill?.cancel();
+      copyRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    copyRef.current?.fill?.cancel();
+    copyRef.current = null;
+    setActiveCopy(null);
+    setFillCopy(null);
+  }, [playbookId]);
 
   // Fetch the playbook
   useEffect(() => {
@@ -75,18 +103,41 @@ export function PlaybookStepper({ playbookId }: Props) {
   }, [showToast]);
 
   const handleCopyAndAdvance = useCallback(
-    async ({ promptId, variantId, content }: PlaybookCopyTarget) => {
-      try {
-        await writeText(content);
-        await api.prompts.recordCopy(promptId, variantId);
-        if (isSessionActive) {
-          await api.session.advance();
+    ({ promptId, variantId, content }: PlaybookCopyTarget) => {
+      if (activeCopy) return;
+      const operation = startCopy({
+        content,
+        promptId,
+        variantId,
+        onAccounting: (ok, key) => {
+          if (!canApplyCopyEffect(copyRef.current, key, liveRef.current)) return;
+          if (!ok) {
+            showToast("Copied, but couldn't record usage", 'error');
+          }
+        },
+      });
+      copyRef.current = operation;
+      setActiveCopy(operation);
+      if (operation.fill) setFillCopy({ operation, content });
+
+      void operation.settled.then((result) => {
+        if (!canApplyCopyEffect(copyRef.current, operation.key, liveRef.current)) {
+          return;
         }
-      } catch (err) {
-        showToast(`Couldn't copy playbook step: ${String(err)}`, 'error');
-      }
+        setActiveCopy(null);
+        setFillCopy(null);
+        if (result.kind === 'copied' && isSessionActive) {
+          void api.session.advance().catch((error) => {
+            if (canApplyCopyEffect(copyRef.current, operation.key, liveRef.current)) {
+              showToast(`Couldn't advance playbook: ${String(error)}`, 'error');
+            }
+          });
+        } else if (result.kind === 'clipboard_error') {
+          showToast(`Couldn't copy playbook step: ${result.message}`, 'error');
+        }
+      });
     },
-    [isSessionActive, showToast],
+    [activeCopy, isSessionActive, showToast],
   );
 
   const handleSkip = useCallback(async () => {
@@ -339,6 +390,7 @@ export function PlaybookStepper({ playbookId }: Props) {
                 isLast={idx === steps.length - 1}
                 onCopy={handleCopyAndAdvance}
                 onSkip={handleSkip}
+                busy={activeCopy !== null && getStepStatus(idx) === 'active'}
               />
             ))}
           </div>
@@ -398,6 +450,21 @@ export function PlaybookStepper({ playbookId }: Props) {
           </span>
         )}
       </div>
+      {fillCopy?.operation.fill && (
+        <FillVariablesModal
+          id="fill-playbook-variables"
+          content={fillCopy.content}
+          names={fillCopy.operation.fill.names}
+          onConfirm={(values) => {
+            fillCopy.operation.fill?.resume(values);
+            setFillCopy(null);
+          }}
+          onCancel={() => {
+            fillCopy.operation.fill?.cancel();
+            setFillCopy(null);
+          }}
+        />
+      )}
     </div>
   );
 }

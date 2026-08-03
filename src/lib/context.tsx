@@ -20,6 +20,11 @@ export interface ToastState {
   tone: ToastTone;
 }
 
+export interface SelectedVariant {
+  promptId: string;
+  variantId: string;
+}
+
 export interface AppContextType {
   // Navigation
   activeView: ActiveView;
@@ -34,6 +39,8 @@ export interface AppContextType {
   // Selection
   selectedPromptId: string | null;
   setSelectedPromptId: (id: string | null) => void;
+  selectedVariantByPrompt: SelectedVariant | null;
+  setSelectedVariantByPrompt: (selection: SelectedVariant | null) => void;
 
   // Search
   searchQuery: string;
@@ -81,6 +88,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [playbookBuilderMode, setPlaybookBuilderMode] =
     useState<PlaybookBuilderMode | null>(null);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
+  const [selectedVariantByPrompt, setSelectedVariantByPrompt] =
+    useState<SelectedVariant | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [displayedPromptIds, setDisplayedPromptIds] = useState<string[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -150,6 +159,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPlaybookBuilderMode,
       selectedPromptId,
       setSelectedPromptId,
+      selectedVariantByPrompt,
+      setSelectedVariantByPrompt,
       searchQuery,
       setSearchQuery,
       displayedPromptIds,
@@ -179,6 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       activePlaybookId,
       playbookBuilderMode,
       selectedPromptId,
+      selectedVariantByPrompt,
       searchQuery,
       displayedPromptIds,
       refreshCounter,

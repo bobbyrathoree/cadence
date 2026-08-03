@@ -184,6 +184,147 @@ test("search palette copies the keyboard-selected result and closes", async ({
   });
 });
 
+test("fills prompt variables in the modal and cancels without accounting", async ({
+  page,
+}) => {
+  await openCadence(page, "/");
+  await page.evaluate(() => {
+    window.__CADENCE_E2E__?.replacePrompt("prompt-alpha", {
+      content: "Hello {{name}}",
+    });
+  });
+  await page.getByText("Alpha Prompt", { exact: true }).first().click();
+  await page.getByRole("button", { name: /^Copy/ }).click();
+  let dialog = page.getByRole("dialog", { name: "Fill prompt variables" });
+  await dialog.getByLabel("name").fill("Ada");
+  await dialog.getByLabel("name").press("Enter");
+  await expect(dialog).not.toBeVisible();
+
+  await expect
+    .poll(async () => {
+      const calls = await ipcCalls(page, [
+        "plugin:clipboard-manager|write_text",
+        "record_copy",
+      ]);
+      return calls.map((call) => call.command);
+    })
+    .toEqual([
+      "plugin:clipboard-manager|write_text",
+      "record_copy",
+    ]);
+  const copied = await ipcCalls(page, [
+    "plugin:clipboard-manager|write_text",
+  ]);
+  expect(copied[0]?.args).toEqual({ text: "Hello Ada" });
+
+  await page.getByRole("button", { name: /^Copy/ }).click();
+  dialog = page.getByRole("dialog", { name: "Fill prompt variables" });
+  await dialog.getByLabel("name").press("Escape");
+  await expect(dialog).not.toBeVisible();
+  const afterCancel = await ipcCalls(page, [
+    "plugin:clipboard-manager|write_text",
+    "record_copy",
+  ]);
+  expect(afterCancel).toHaveLength(2);
+});
+
+test("floating fill suppresses dismissals, supports Escape, and reports clipboard errors inline", async ({
+  page,
+}) => {
+  await openCadence(page, "/search.html");
+  await page.evaluate(() => {
+    window.__CADENCE_E2E__?.replacePrompt("prompt-alpha", {
+      content: "Hello {{name}}",
+    });
+  });
+  const search = page.getByPlaceholder("Search prompts...");
+  await search.fill("Alpha");
+  await expect(page.getByText("Alpha Prompt", { exact: true }).first()).toBeVisible();
+  await search.press("Enter");
+  let fill = page.getByRole("form", { name: "Fill prompt variables" });
+  await expect(fill).toBeVisible();
+
+  await page.evaluate(() => window.__CADENCE_E2E__?.emit("tauri://blur"));
+  await fill.getByLabel("name").press("Escape");
+  await expect(fill).not.toBeVisible();
+  expect(await ipcCalls(page, ["hide_search_window"])).toHaveLength(0);
+
+  await search.press("Enter");
+  fill = page.getByRole("form", { name: "Fill prompt variables" });
+  await fill.getByLabel("name").fill("Ada");
+  await fill.getByLabel("name").press("Enter");
+  await expect
+    .poll(async () => {
+      const calls = await ipcCalls(page, [
+        "plugin:clipboard-manager|write_text",
+        "hide_search_window",
+      ]);
+      return calls.map((call) => call.command);
+    })
+    .toEqual([
+      "plugin:clipboard-manager|write_text",
+      "hide_search_window",
+    ]);
+
+  await page.evaluate(() => {
+    window.__CADENCE_E2E__?.failNextClipboard("clipboard unavailable");
+  });
+  await search.press("Enter");
+  fill = page.getByRole("form", { name: "Fill prompt variables" });
+  await fill.getByLabel("name").fill("Grace");
+  await fill.getByLabel("name").press("Enter");
+  await expect(page.getByRole("alert")).toHaveText("clipboard unavailable");
+  expect(await ipcCalls(page, ["hide_search_window"])).toHaveLength(1);
+});
+
+test("playbook variable copy advances exactly once only after success", async ({
+  page,
+}) => {
+  await openCadence(page, "/");
+  await page.evaluate(() => {
+    window.__CADENCE_E2E__?.replacePrompt("prompt-alpha", {
+      content: "Ship for {{audience}}",
+    });
+  });
+  await page.getByRole("button", { name: "New Playbook" }).click();
+  const builder = page
+    .getByRole("heading", { name: "New Playbook" })
+    .locator("xpath=../..");
+  await builder.getByLabel("Playbook name").fill("Variable Workflow");
+  await builder.getByRole("button", { name: "+ Single" }).click();
+  await builder
+    .getByRole("button", { name: "Alpha Prompt", exact: true })
+    .click();
+  await builder.getByRole("button", { name: "Save Playbook" }).click();
+  await page.getByRole("button", { name: "Start Session" }).click();
+
+  await page.getByRole("button", { name: "Copy Step 1" }).click();
+  let dialog = page.getByRole("dialog", { name: "Fill prompt variables" });
+  await expect(dialog.getByLabel("audience")).toBeFocused();
+  await dialog.getByLabel("audience").press("Escape");
+  await expect(dialog).not.toBeVisible();
+  expect(await ipcCalls(page, ["advance_playbook_step"])).toHaveLength(0);
+
+  await page.evaluate(() => {
+    window.__CADENCE_E2E__?.failNextClipboard("clipboard unavailable");
+  });
+  await page.getByRole("button", { name: "Copy Step 1" }).click();
+  dialog = page.getByRole("dialog", { name: "Fill prompt variables" });
+  await dialog.getByLabel("audience").fill("reviewers");
+  await dialog.getByLabel("audience").press("Enter");
+  await expect(page.getByText(/Couldn't copy playbook step/)).toBeVisible();
+  expect(await ipcCalls(page, ["advance_playbook_step"])).toHaveLength(0);
+
+  await page.getByRole("button", { name: "Copy Step 1" }).click();
+  dialog = page.getByRole("dialog", { name: "Fill prompt variables" });
+  await dialog.getByLabel("audience").fill("customers");
+  await dialog.getByLabel("audience").press("Enter");
+  await expect
+    .poll(async () => (await ipcCalls(page, ["advance_playbook_step"])).length)
+    .toBe(1);
+  expect(await ipcCalls(page, ["advance_playbook_step"])).toHaveLength(1);
+});
+
 test("imports JSON and Markdown and renders per-item errors", async ({
   page,
 }) => {
@@ -353,6 +494,7 @@ declare global {
         update: { title?: string; content?: string },
       ) => void;
       delayNextPromptFetch: (delayMs: number) => void;
+      failNextClipboard: (message: string) => void;
     };
   }
 }
@@ -456,6 +598,7 @@ async function installMockIpc(page: Page) {
       nextPlaybook: 1,
       nextStep: 1,
       nextPromptFetchDelayMs: 0,
+      nextClipboardError: null as string | null,
     };
     const calls: IpcCall[] = [];
     function listItem(prompt: (typeof prompts)[number]) {
@@ -523,6 +666,9 @@ async function installMockIpc(page: Page) {
       },
       delayNextPromptFetch(delayMs: number) {
         state.nextPromptFetchDelayMs = delayMs;
+      },
+      failNextClipboard(message: string) {
+        state.nextClipboardError = message;
       },
       invoke(command: string, args: Record<string, unknown>) {
         calls.push({ command, args: clone(args) });
@@ -601,6 +747,11 @@ async function installMockIpc(page: Page) {
             return [];
           case "get_api_enabled":
             return state.apiEnabled;
+          case "get_mcp_binary_location":
+            return {
+              path: "/tmp/target/debug/cadence-mcp",
+              development: true,
+            };
           case "set_api_enabled":
             state.apiEnabled = Boolean(args.enabled);
             dbChanged();
@@ -750,6 +901,12 @@ async function installMockIpc(page: Page) {
               errors: [],
             };
           case "plugin:clipboard-manager|write_text":
+            if (state.nextClipboardError) {
+              const message = state.nextClipboardError;
+              state.nextClipboardError = null;
+              throw new Error(message);
+            }
+            return null;
           case "hide_search_window":
             return null;
           case "record_copy": {
