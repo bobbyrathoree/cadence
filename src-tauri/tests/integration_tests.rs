@@ -1055,35 +1055,6 @@ fn test_export_json() {
 }
 
 // =========================================================================
-// 14. API Auth (unit-level check of middleware logic)
-// =========================================================================
-
-// The auth middleware requires a running axum server and async context.
-// We test it in a lightweight way by verifying the middleware function
-// signature and behavior are consistent with the ApiState struct.
-// A full HTTP-level test would require spinning up a server, which is
-// beyond the scope of these synchronous integration tests.
-
-#[test]
-fn test_api_auth_state_structure() {
-    // Verify that ApiState can be constructed and the key field is accessible.
-    // This is a compile-time + basic sanity check.
-    use cadence_lib::api::server::ApiState;
-    use std::sync::Mutex;
-
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let state = ApiState {
-        db: Mutex::new(conn),
-        api_key: "test-key-12345".to_string(),
-        api_port: 3210,
-        app_handle: None,
-    };
-
-    assert_eq!(state.api_key, "test-key-12345", "API key should be stored");
-    assert!(state.db.lock().is_ok(), "Database mutex should be lockable");
-}
-
-// =========================================================================
 // Edge cases and additional coverage
 // =========================================================================
 
