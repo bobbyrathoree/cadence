@@ -110,6 +110,7 @@ export function PromptDetail({ promptId }: Props) {
     data: prompt,
     error: promptError,
     loading,
+    refreshError,
   } = usePromptDetail(promptId, refreshCounter);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
@@ -151,9 +152,15 @@ export function PromptDetail({ promptId }: Props) {
         prompt,
         activeVariantId: selectedVariant.id,
       });
-      requestAnimationFrame(() => titleInputRef.current?.focus());
     }
   }, [isEditing, promptId, prompt, selectedVariant]);
+
+  // Focus once when edit mode opens. Background prompt replacements must not steal it.
+  useEffect(() => {
+    if (!isEditing) return;
+    const frame = requestAnimationFrame(() => titleInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isEditing]);
 
   const highlightedContent = useMemo(() => {
     if (!selectedVariant) return [];
@@ -318,6 +325,19 @@ export function PromptDetail({ promptId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
+      {refreshError && (
+        <div
+          role="alert"
+          style={{
+            padding: '6px 20px',
+            color: '#ff453a',
+            background: 'color-mix(in srgb, #ff453a 8%, transparent)',
+            fontSize: 11,
+          }}
+        >
+          Couldn't refresh prompt: {refreshError.message}
+        </div>
+      )}
       {/* Sticky header */}
       <div
         className="flex-shrink-0"

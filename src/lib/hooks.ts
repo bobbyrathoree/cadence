@@ -24,6 +24,12 @@ export interface PaginatedFetchState<T> extends FetchState<T[]> {
   loadMore: () => void;
 }
 
+export interface PromptDetailFetchState
+  extends FetchState<PromptWithVariants | null> {
+  refreshing: boolean;
+  refreshError: Error | null;
+}
+
 const PAGE_SIZE = 100;
 
 export function mergePromptPages(
@@ -258,39 +264,68 @@ export function usePromptCounts(
 export function usePromptDetail(
   id: string | null,
   refreshCounter?: number,
-): FetchState<PromptWithVariants | null> {
+): PromptDetailFetchState {
   const [prompt, setPrompt] = useState<PromptWithVariants | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<Error | null>(null);
+  const loadedPromptIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!id) {
+      loadedPromptIdRef.current = null;
       setPrompt(null);
       setError(null);
       setLoading(false);
+      setRefreshing(false);
+      setRefreshError(null);
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const identityLoad = loadedPromptIdRef.current !== id;
+    if (identityLoad) {
+      setLoading(true);
+      setRefreshing(false);
+      setError(null);
+    } else {
+      setLoading(false);
+      setRefreshing(true);
+      setRefreshError(null);
+    }
 
     api.prompts
       .get(id)
       .then((result) => {
-        if (!cancelled) setPrompt(result);
+        if (!cancelled) {
+          loadedPromptIdRef.current = id;
+          setPrompt(result);
+        }
       })
       .catch((err) => {
-        if (!cancelled) setError(asError(err));
+        if (!cancelled) {
+          if (identityLoad) {
+            setError(asError(err));
+          } else {
+            setRefreshError(asError(err));
+          }
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          if (identityLoad) {
+            setLoading(false);
+          } else {
+            setRefreshing(false);
+          }
+        }
       });
 
     return () => { cancelled = true; };
   }, [id, refreshCounter]);
 
-  return { data: prompt, error, loading };
+  return { data: prompt, error, loading, refreshing, refreshError };
 }
 
 /**

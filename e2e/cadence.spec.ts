@@ -231,7 +231,15 @@ test("preserves prompt drafts across a db-changed refetch", async ({ page }) => 
   await page.getByText("Alpha Prompt", { exact: true }).first().click();
   await page.getByRole("button", { name: /^Edit/ }).click();
   await page.getByLabel("Prompt title").fill("Local Draft Title");
-  await page.getByLabel("Variant content").fill("Local draft content");
+  const content = page.getByLabel("Variant content");
+  await content.fill("Local draft content");
+  await content.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(6, 11);
+    const bridge = window.__CADENCE_E2E__;
+    if (!bridge) throw new Error("Cadence E2E bridge is not installed");
+    bridge.delayNextPromptFetch(150);
+  });
 
   await page.evaluate(() => {
     const bridge = window.__CADENCE_E2E__;
@@ -242,13 +250,29 @@ test("preserves prompt drafts across a db-changed refetch", async ({ page }) => 
     });
   });
 
+  await expect(content).toBeFocused();
+  await expect
+    .poll(() =>
+      content.evaluate((element: HTMLTextAreaElement) => [
+        element.selectionStart,
+        element.selectionEnd,
+      ]),
+    )
+    .toEqual([6, 11]);
   await expect(
     page.getByText("Server Refetched Title", { exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("Prompt title")).toHaveValue("Local Draft Title");
-  await expect(page.getByLabel("Variant content")).toHaveValue(
-    "Local draft content",
-  );
+  await expect(content).toHaveValue("Local draft content");
+  await expect(content).toBeFocused();
+  await expect
+    .poll(() =>
+      content.evaluate((element: HTMLTextAreaElement) => [
+        element.selectionStart,
+        element.selectionEnd,
+      ]),
+    )
+    .toEqual([6, 11]);
 
   await page.getByRole("button", { name: /^Save/ }).click();
   await expect(
@@ -309,6 +333,7 @@ declare global {
         promptId: string,
         update: { title?: string; content?: string },
       ) => void;
+      delayNextPromptFetch: (delayMs: number) => void;
     };
   }
 }
@@ -411,6 +436,7 @@ async function installMockIpc(page: Page) {
       }>,
       nextPlaybook: 1,
       nextStep: 1,
+      nextPromptFetchDelayMs: 0,
     };
     const calls: IpcCall[] = [];
     function listItem(prompt: (typeof prompts)[number]) {
@@ -476,6 +502,9 @@ async function installMockIpc(page: Page) {
         }
         dbChanged();
       },
+      delayNextPromptFetch(delayMs: number) {
+        state.nextPromptFetchDelayMs = delayMs;
+      },
       invoke(command: string, args: Record<string, unknown>) {
         calls.push({ command, args: clone(args) });
 
@@ -500,8 +529,14 @@ async function installMockIpc(page: Page) {
               recents: state.prompts.filter((prompt) => prompt.last_copied_at)
                 .length,
             };
-          case "get_prompt":
-            return clone(findPrompt(String(args.id)));
+          case "get_prompt": {
+            const result = clone(findPrompt(String(args.id)));
+            const delayMs = state.nextPromptFetchDelayMs;
+            state.nextPromptFetchDelayMs = 0;
+            return delayMs > 0
+              ? new Promise((resolve) => setTimeout(() => resolve(result), delayMs))
+              : result;
+          }
           case "search_prompts": {
             const query = String(args.query).toLocaleLowerCase();
             return clone(
