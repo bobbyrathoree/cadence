@@ -3,12 +3,14 @@ import { useAppContext } from '../../lib/context';
 import type { ActiveView } from '../../lib/context';
 import {
   useCollections,
+  usePlaybookDetail,
   usePlaybooks,
   useTags,
   usePlaybookSession,
   usePromptCounts,
 } from '../../lib/hooks';
 import { api } from '../../lib/api';
+import { getPlaybookProgress } from '../../lib/playbook';
 import { CollectionItem } from './CollectionItem';
 
 /* ------------------------------------------------------------------ */
@@ -166,6 +168,10 @@ export function Sidebar() {
   const { data: tags, error: tagsError } = useTags(refreshCounter);
   const { data: session, error: sessionError } =
     usePlaybookSession(refreshCounter);
+  const {
+    data: activeSessionPlaybook,
+    error: activeSessionPlaybookError,
+  } = usePlaybookDetail(session?.active_playbook_id ?? null);
   const { data: counts, error: countsError } =
     usePromptCounts(refreshCounter);
 
@@ -425,7 +431,7 @@ export function Sidebar() {
         >
           Playbooks
         </SectionHeader>
-        {playbooksError || sessionError ? (
+        {playbooksError || sessionError || activeSessionPlaybookError ? (
           <div role="alert" className="px-2.5 py-1" style={{ fontSize: 11, color: '#ff453a' }}>
             Couldn't load playbooks
           </div>
@@ -461,7 +467,14 @@ export function Sidebar() {
                         <div
                           className="h-full rounded-full transition-all duration-300"
                           style={{
-                            width: `${Math.max(5, (session.current_step + 1) * 20)}%`,
+                            width: `${
+                              getPlaybookProgress(
+                                session.current_step,
+                                activeSessionPlaybook?.id === pb.id
+                                  ? activeSessionPlaybook.steps.length
+                                  : 0,
+                              ) * 100
+                            }%`,
                             background: 'var(--accent)',
                           }}
                         />

@@ -6,6 +6,7 @@ import type {
   Tag,
   Collection,
   Playbook,
+  PlaybookWithSteps,
   PlaybookSession,
   KeyboardShortcut,
   PromptCounts,
@@ -425,6 +426,44 @@ export function usePlaybooks(
   }, [refreshCounter]);
 
   return { data: playbooks, error, loading };
+}
+
+export function usePlaybookDetail(
+  id: string | null,
+): FetchState<PlaybookWithSteps | null> {
+  const [playbook, setPlaybook] = useState<PlaybookWithSteps | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!id) {
+      setPlaybook(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.playbooks
+      .get(id)
+      .then((result) => {
+        if (!cancelled) setPlaybook(result);
+      })
+      .catch((fetchError) => {
+        if (!cancelled) setError(asError(fetchError));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  return { data: playbook, error, loading };
 }
 
 /**

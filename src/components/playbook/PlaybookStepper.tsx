@@ -3,6 +3,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { api } from '../../lib/api';
 import { useAppContext } from '../../lib/context';
 import { usePlaybookSession } from '../../lib/hooks';
+import { getPlaybookProgress } from '../../lib/playbook';
 import type { PlaybookWithSteps } from '../../lib/types';
 import { PlaybookStep } from './PlaybookStep';
 import type { PlaybookCopyTarget, StepStatus } from './PlaybookStep';
@@ -143,7 +144,7 @@ export function PlaybookStepper({ playbookId }: Props) {
 
   const totalSteps = steps.length;
   const completedSteps = isSessionActive ? Math.min(currentStep, totalSteps) : 0;
-  const progress = totalSteps > 0 ? completedSteps / totalSteps : 0;
+  const progress = getPlaybookProgress(completedSteps, totalSteps);
   const allComplete = isSessionActive && completedSteps >= totalSteps;
 
   return (
