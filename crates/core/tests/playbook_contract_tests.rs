@@ -1,9 +1,9 @@
-use cadence_lib::db::schema;
-use cadence_lib::error::AppError;
-use cadence_lib::models::patch::PatchField;
-use cadence_lib::models::playbook::{StepSpec, UpdatePlaybookRequest};
-use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
-use cadence_lib::services::{playbook_service, prompt_service};
+use cadence_core::db::schema;
+use cadence_core::error::AppError;
+use cadence_core::models::patch::PatchField;
+use cadence_core::models::playbook::{StepSpec, UpdatePlaybookRequest};
+use cadence_core::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
+use cadence_core::services::{playbook_service, prompt_service};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {

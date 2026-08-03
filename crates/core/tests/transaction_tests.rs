@@ -2,14 +2,14 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use cadence_lib::db::{self, schema};
-use cadence_lib::error::AppError;
-use cadence_lib::models::collection::CreateCollectionRequest;
-use cadence_lib::models::patch::PatchField;
-use cadence_lib::models::playbook::{StepSpec, UpdatePlaybookRequest};
-use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
-use cadence_lib::seed;
-use cadence_lib::services::{
+use cadence_core::db::{self, schema};
+use cadence_core::error::AppError;
+use cadence_core::models::collection::CreateCollectionRequest;
+use cadence_core::models::patch::PatchField;
+use cadence_core::models::playbook::{StepSpec, UpdatePlaybookRequest};
+use cadence_core::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
+use cadence_core::seed;
+use cadence_core::services::{
     collection_service, import_export, playbook_service, prompt_service, settings_service,
 };
 use rusqlite::{params, Connection, TransactionBehavior};

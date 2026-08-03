@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cadence_lib::db::{migrate, schema};
+use cadence_core::db::{migrate, schema};
 use rusqlite::{params, Connection};
 
 fn setup_v0_fixture() -> Connection {

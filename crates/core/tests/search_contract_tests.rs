@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
-use cadence_lib::db::schema;
-use cadence_lib::models::collection::CreateCollectionRequest;
-use cadence_lib::models::prompt::{CreatePromptRequest, PromptListItem};
-use cadence_lib::services::{collection_service, prompt_service, search_service};
+use cadence_core::db::schema;
+use cadence_core::models::collection::CreateCollectionRequest;
+use cadence_core::models::prompt::{CreatePromptRequest, PromptListItem};
+use cadence_core::services::{collection_service, prompt_service, search_service};
 
 fn setup_db() -> rusqlite::Connection {
     let conn = rusqlite::Connection::open_in_memory().unwrap();

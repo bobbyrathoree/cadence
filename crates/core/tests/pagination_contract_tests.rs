@@ -1,7 +1,7 @@
-use cadence_lib::db::schema;
-use cadence_lib::models::collection::CreateCollectionRequest;
-use cadence_lib::models::prompt::CreatePromptRequest;
-use cadence_lib::services::{collection_service, pagination, prompt_service, search_service};
+use cadence_core::db::schema;
+use cadence_core::models::collection::CreateCollectionRequest;
+use cadence_core::models::prompt::CreatePromptRequest;
+use cadence_core::services::{collection_service, pagination, prompt_service, search_service};
 use rusqlite::{params, Connection};
 
 fn setup_db() -> Connection {
@@ -27,7 +27,7 @@ fn insert_prompt(
     .unwrap();
 }
 
-fn ids(items: &[cadence_lib::models::prompt::PromptListItem]) -> Vec<String> {
+fn ids(items: &[cadence_core::models::prompt::PromptListItem]) -> Vec<String> {
     items.iter().map(|item| item.id.clone()).collect()
 }
 

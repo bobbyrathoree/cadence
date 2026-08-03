@@ -2,12 +2,12 @@
 ///
 /// Each test creates a fresh in-memory SQLite database with the full schema
 /// applied, then exercises the service layer directly.
-use cadence_lib::db::schema;
-use cadence_lib::models::collection::CreateCollectionRequest;
-use cadence_lib::models::patch::PatchField;
-use cadence_lib::models::playbook::{StepSpec, UpdatePlaybookRequest};
-use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
-use cadence_lib::services::{
+use cadence_core::db::schema;
+use cadence_core::models::collection::CreateCollectionRequest;
+use cadence_core::models::patch::PatchField;
+use cadence_core::models::playbook::{StepSpec, UpdatePlaybookRequest};
+use cadence_core::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
+use cadence_core::services::{
     collection_service, import_export, playbook_service, prompt_service, search_service,
     settings_service, tag_service,
 };
@@ -27,7 +27,7 @@ fn create_test_prompt(
     content: &str,
     tags: Vec<String>,
     is_favorite: bool,
-) -> cadence_lib::models::prompt::PromptWithVariants {
+) -> cadence_core::models::prompt::PromptWithVariants {
     let req = CreatePromptRequest {
         title: title.to_string(),
         description: None,

@@ -1,7 +1,7 @@
-use cadence_lib::db::schema;
-use cadence_lib::models::patch::PatchField;
-use cadence_lib::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
-use cadence_lib::services::{prompt_service, search_service, tag_service};
+use cadence_core::db::schema;
+use cadence_core::models::patch::PatchField;
+use cadence_core::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
+use cadence_core::services::{prompt_service, search_service, tag_service};
 
 fn setup_db() -> rusqlite::Connection {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
@@ -16,7 +16,7 @@ fn create_prompt(
     description: Option<&str>,
     content: &str,
     tags: &[&str],
-) -> cadence_lib::models::prompt::PromptWithVariants {
+) -> cadence_core::models::prompt::PromptWithVariants {
     prompt_service::create_prompt(
         conn,
         CreatePromptRequest {

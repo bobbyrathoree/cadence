@@ -2,10 +2,7 @@
 
 pub mod api;
 pub mod commands;
-pub mod db;
-pub mod error;
-pub mod models;
 pub mod search_window;
-pub mod seed;
-pub mod services;
 pub mod state;
+
+pub use cadence_core::{db, error, models, seed, services};
