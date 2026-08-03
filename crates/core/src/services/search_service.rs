@@ -110,7 +110,7 @@ pub fn search_prompts_page(
     search_prompts(conn, query, limit)
 }
 
-fn tokenize_query(query: &str) -> Vec<String> {
+pub(crate) fn tokenize_query(query: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
 
@@ -128,7 +128,7 @@ fn tokenize_query(query: &str) -> Vec<String> {
     tokens
 }
 
-fn build_snippet_runs(content: &str, query_tokens: &[String]) -> Vec<SnippetRun> {
+pub(crate) fn build_snippet_runs(content: &str, query_tokens: &[String]) -> Vec<SnippetRun> {
     let characters = content.chars().collect::<Vec<_>>();
     if characters.is_empty() {
         return Vec::new();

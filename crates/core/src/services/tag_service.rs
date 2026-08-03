@@ -5,6 +5,13 @@ use crate::error::{AppError, AppResult};
 use crate::models::tag::{CreateTagRequest, Tag};
 use crate::services::{prompt_service, transaction};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagCountRow {
+    pub name: String,
+    pub color: Option<String>,
+    pub prompt_count: i64,
+}
+
 pub fn get_or_create_tag(conn: &mut Db, name: &str) -> AppResult<Tag> {
     transaction::immediate(conn, |tx| get_or_create_tag_tx(tx, name))
 }
@@ -75,6 +82,30 @@ pub fn list_tags(conn: &Connection) -> AppResult<Vec<Tag>> {
             created_at: row.get(3)?,
         })
     })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)
+}
+
+pub fn list_tags_with_counts(conn: &Connection) -> AppResult<Vec<TagCountRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.name, t.color, COUNT(p.id)
+             FROM tags t
+             LEFT JOIN prompt_tags pt ON pt.tag_id = t.id
+             LEFT JOIN prompts p ON p.id = pt.prompt_id AND p.deleted_at IS NULL
+             GROUP BY t.id, t.name, t.color
+             ORDER BY t.name ASC",
+        )
+        .map_err(AppError::from)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(TagCountRow {
+                name: row.get(0)?,
+                color: row.get(1)?,
+                prompt_count: row.get(2)?,
+            })
+        })
+        .map_err(AppError::from)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(AppError::from)
 }

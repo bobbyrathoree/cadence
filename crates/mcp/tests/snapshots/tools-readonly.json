@@ -1,0 +1,448 @@
+[
+  {
+    "name": "get_playbook",
+    "description": "Get a playbook (ordered prompt workflow) with fully hydrated steps, by id or exact title.",
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "id_or_title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id_or_title"
+      ]
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "PromptDetailOut": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": ["string", "null"] },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "is_favorite": { "type": "boolean" },
+            "is_pinned": { "type": "boolean" },
+            "created_at": { "type": ["string", "null"] },
+            "updated_at": { "type": ["string", "null"] },
+            "primary_variant_id": { "type": ["string", "null"] },
+            "variants": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/VariantOut" }
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "tags",
+            "is_favorite",
+            "is_pinned",
+            "variants"
+          ]
+        },
+        "StepOut": {
+          "type": "object",
+          "properties": {
+            "position": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "step_type": { "type": "string" },
+            "instructions": { "type": ["string", "null"] },
+            "prompt": {
+              "anyOf": [
+                { "$ref": "#/$defs/PromptDetailOut" },
+                { "type": "null" }
+              ]
+            },
+            "choice_prompts": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/PromptDetailOut" }
+            },
+            "missing": { "type": "boolean" }
+          },
+          "required": [
+            "position",
+            "step_type",
+            "choice_prompts",
+            "missing"
+          ]
+        },
+        "VariantOut": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": ["string", "null"] },
+            "content": { "type": "string" },
+            "is_primary": { "type": "boolean" }
+          },
+          "required": [
+            "id",
+            "content",
+            "is_primary"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/StepOut" }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "steps"
+      ]
+    }
+  },
+  {
+    "name": "get_prompt",
+    "description": "Get a prompt with all its variants, by id or exact title.",
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "id_or_title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id_or_title"
+      ]
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "VariantOut": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": ["string", "null"] },
+            "content": { "type": "string" },
+            "is_primary": { "type": "boolean" }
+          },
+          "required": [
+            "id",
+            "content",
+            "is_primary"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "is_favorite": { "type": "boolean" },
+        "is_pinned": { "type": "boolean" },
+        "created_at": { "type": ["string", "null"] },
+        "updated_at": { "type": ["string", "null"] },
+        "primary_variant_id": { "type": ["string", "null"] },
+        "variants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VariantOut" }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "tags",
+        "is_favorite",
+        "is_pinned",
+        "variants"
+      ]
+    }
+  },
+  {
+    "name": "list_playbooks",
+    "description": "List playbooks with step counts.",
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "PlaybookSummary": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": ["string", "null"] },
+            "step_count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "step_count"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "playbooks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PlaybookSummary" }
+        }
+      },
+      "required": [
+        "playbooks"
+      ]
+    }
+  },
+  {
+    "name": "list_prompts",
+    "description": "List prompts (filter: all, favorites, or recent).",
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "filter": { "type": ["string", "null"] },
+        "limit": {
+          "type": ["integer", "null"],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": ["integer", "null"],
+          "format": "uint32",
+          "minimum": 0
+        }
+      }
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "PromptSummary": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": ["string", "null"] },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "is_favorite": { "type": "boolean" },
+            "is_pinned": { "type": "boolean" },
+            "updated_at": { "type": ["string", "null"] },
+            "snippet": { "type": ["string", "null"] }
+          },
+          "required": [
+            "id",
+            "title",
+            "tags",
+            "is_favorite",
+            "is_pinned"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "prompts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PromptSummary" }
+        },
+        "next_offset": {
+          "type": ["integer", "null"],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "prompts"
+      ]
+    }
+  },
+  {
+    "name": "list_tags",
+    "description": "List tags with prompt counts.",
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "TagOut": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "color": { "type": ["string", "null"] },
+            "prompt_count": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "name",
+            "prompt_count"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TagOut" }
+        }
+      },
+      "required": [
+        "tags"
+      ]
+    }
+  },
+  {
+    "name": "record_copy",
+    "description": "Record usage of a prompt and return its content (primary variant unless variant_id given).",
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "prompt_id": { "type": "string" },
+        "variant_id": { "type": ["string", "null"] }
+      },
+      "required": [
+        "prompt_id"
+      ]
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "search_prompts",
+    "description": "Full-text search over prompts.",
+    "annotations": {
+      "readOnlyHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "limit": {
+          "type": ["integer", "null"],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": ["integer", "null"],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "PromptSummary": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": ["string", "null"] },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "is_favorite": { "type": "boolean" },
+            "is_pinned": { "type": "boolean" },
+            "updated_at": { "type": ["string", "null"] },
+            "snippet": { "type": ["string", "null"] }
+          },
+          "required": [
+            "id",
+            "title",
+            "tags",
+            "is_favorite",
+            "is_pinned"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "prompts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PromptSummary" }
+        },
+        "next_offset": {
+          "type": ["integer", "null"],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "prompts"
+      ]
+    }
+  }
+]

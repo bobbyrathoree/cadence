@@ -1,5 +1,7 @@
+pub mod dto;
 mod fault;
 mod server;
+mod tools;
 pub mod write_scope;
 
 use std::env;
@@ -13,7 +15,7 @@ use cadence_core::db::{
 };
 use rmcp::{transport::stdio, ServiceExt};
 
-pub use server::{McpState, SERVER_INSTRUCTIONS, SUPPORTED_PROTOCOL_VERSIONS};
+pub use server::{CadenceMcp, McpState, SERVER_INSTRUCTIONS, SUPPORTED_PROTOCOL_VERSIONS};
 
 const HELP: &str = "Usage: cadence-mcp [--help | --version]\n";
 

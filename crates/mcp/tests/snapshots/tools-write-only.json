@@ -1,0 +1,145 @@
+[
+  {
+    "name": "create_prompt",
+    "description": "Create a new prompt in the Cadence library.",
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "tags": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "variant_label": { "type": ["string", "null"] }
+      },
+      "required": [
+        "title",
+        "content"
+      ]
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "VariantOut": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": ["string", "null"] },
+            "content": { "type": "string" },
+            "is_primary": { "type": "boolean" }
+          },
+          "required": [
+            "id",
+            "content",
+            "is_primary"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "is_favorite": { "type": "boolean" },
+        "is_pinned": { "type": "boolean" },
+        "created_at": { "type": ["string", "null"] },
+        "updated_at": { "type": ["string", "null"] },
+        "primary_variant_id": { "type": ["string", "null"] },
+        "variants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VariantOut" }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "tags",
+        "is_favorite",
+        "is_pinned",
+        "variants"
+      ]
+    }
+  },
+  {
+    "name": "update_prompt_content",
+    "description": "Replace the content of a prompt's variant (primary unless variant_id given).",
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "prompt_id": { "type": "string" },
+        "variant_id": { "type": ["string", "null"] },
+        "content": { "type": "string" }
+      },
+      "required": [
+        "prompt_id",
+        "content"
+      ]
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "VariantOut": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": ["string", "null"] },
+            "content": { "type": "string" },
+            "is_primary": { "type": "boolean" }
+          },
+          "required": [
+            "id",
+            "content",
+            "is_primary"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": ["string", "null"] },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "is_favorite": { "type": "boolean" },
+        "is_pinned": { "type": "boolean" },
+        "created_at": { "type": ["string", "null"] },
+        "updated_at": { "type": ["string", "null"] },
+        "primary_variant_id": { "type": ["string", "null"] },
+        "variants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VariantOut" }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "tags",
+        "is_favorite",
+        "is_pinned",
+        "variants"
+      ]
+    }
+  }
+]

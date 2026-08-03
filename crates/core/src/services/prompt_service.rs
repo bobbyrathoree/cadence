@@ -7,7 +7,26 @@ use crate::models::prompt::{
     CreatePromptRequest, Prompt, PromptCounts, PromptListItem, PromptUsage, PromptWithVariants,
     UpdatePromptRequest, Variant,
 };
-use crate::services::{pagination, tag_service, transaction};
+use crate::services::{pagination, search_service, tag_service, transaction};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptFilter {
+    All,
+    Favorites,
+    Recent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummaryRow {
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub is_favorite: bool,
+    pub is_pinned: bool,
+    pub updated_at: Option<String>,
+    pub snippet: Option<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptListFilter {
@@ -101,6 +120,17 @@ fn next_active_variant_id(
 
 pub fn create_prompt(conn: &mut Db, request: CreatePromptRequest) -> AppResult<PromptWithVariants> {
     transaction::immediate(conn, |tx| create_prompt_tx(tx, request.clone()))
+}
+
+pub fn create_prompt_with_driver(
+    db: &mut Db,
+    request: CreatePromptRequest,
+    driver: &dyn transaction::TxDriver,
+    policy: &transaction::RetryPolicy,
+) -> AppResult<PromptWithVariants> {
+    transaction::immediate_with(db, driver, policy, |conn| {
+        create_prompt_tx(conn, request.clone())
+    })
 }
 
 pub(crate) fn create_prompt_tx(
@@ -213,7 +243,7 @@ pub fn get_prompt_by_id(conn: &Connection, id: &str) -> AppResult<PromptWithVari
                         created_at, updated_at, deleted_at
                  FROM variants
                  WHERE prompt_id = ?1 AND deleted_at IS NULL
-                 ORDER BY sort_order",
+                 ORDER BY sort_order, created_at, id",
             )
             .map_err(AppError::from)?;
         let rows = stmt.query_map(params![id], |row| {
@@ -243,6 +273,301 @@ pub fn get_prompt_by_id(conn: &Connection, id: &str) -> AppResult<PromptWithVari
 
 pub fn list_prompts(conn: &Connection, limit: i64, offset: i64) -> AppResult<Vec<PromptListItem>> {
     list_prompts_page(conn, Some("all"), Some(limit), Some(offset))
+}
+
+pub fn list_prompt_summaries(
+    conn: &Connection,
+    filter: PromptFilter,
+    limit: u32,
+    offset: u32,
+) -> AppResult<Vec<SummaryRow>> {
+    let (predicate, ordering) = match filter {
+        PromptFilter::All => ("", "p.updated_at DESC NULLS LAST, p.id DESC"),
+        PromptFilter::Favorites => (
+            "AND p.is_favorite = 1",
+            "p.updated_at DESC NULLS LAST, p.id DESC",
+        ),
+        PromptFilter::Recent => (
+            "AND p.last_copied_at IS NOT NULL",
+            "p.last_copied_at DESC, p.id DESC",
+        ),
+    };
+    let sql = format!(
+        "SELECT p.id, p.title, p.description, p.is_favorite, p.is_pinned, p.updated_at
+         FROM prompts p
+         WHERE p.deleted_at IS NULL {predicate}
+         ORDER BY {ordering}
+         LIMIT ?1 OFFSET ?2"
+    );
+    query_summary_rows(
+        conn,
+        &sql,
+        params![i64::from(limit), i64::from(offset)],
+        None,
+    )
+}
+
+pub fn search_prompt_summaries(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+    offset: u32,
+) -> AppResult<Vec<SummaryRow>> {
+    let tokens = search_service::tokenize_query(query);
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let last_index = tokens.len() - 1;
+    let fts_query = tokens
+        .iter()
+        .enumerate()
+        .map(|(index, token)| {
+            if index == last_index {
+                format!("\"{token}\"*")
+            } else {
+                format!("\"{token}\"")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, p.title, p.description, p.is_favorite, p.is_pinned, p.updated_at,
+                    COALESCE(v.content, '')
+             FROM prompts_fts f
+             JOIN fts_mapping m ON m.rowid = f.rowid
+             JOIN prompts p ON p.id = m.prompt_id
+             LEFT JOIN variants v
+               ON v.id = p.primary_variant_id
+              AND v.prompt_id = p.id
+              AND v.deleted_at IS NULL
+             WHERE prompts_fts MATCH ?1 AND p.deleted_at IS NULL
+             ORDER BY f.rank, p.id
+             LIMIT ?2 OFFSET ?3",
+        )
+        .map_err(AppError::from)?;
+    let rows = stmt
+        .query_map(
+            params![fts_query, i64::from(limit), i64::from(offset)],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                    row.get::<_, i64>(4)? != 0,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            },
+        )
+        .map_err(AppError::from)?;
+    let mut summaries = Vec::new();
+    for row in rows {
+        let (id, title, description, is_favorite, is_pinned, updated_at, content) =
+            row.map_err(AppError::from)?;
+        let snippet = search_service::build_snippet_runs(&content, &tokens)
+            .into_iter()
+            .map(|run| run.text)
+            .collect::<String>();
+        summaries.push(SummaryRow {
+            tags: tag_names(conn, &id)?,
+            id,
+            title,
+            description,
+            is_favorite,
+            is_pinned,
+            updated_at,
+            snippet: Some(snippet),
+        });
+    }
+    Ok(summaries)
+}
+
+pub fn agent_catalog(conn: &Connection, cap: u32) -> AppResult<Vec<PromptWithVariants>> {
+    catalog(conn, "AND (is_pinned = 1 OR is_favorite = 1)", cap)
+}
+
+pub fn pinned_catalog(conn: &Connection, cap: u32) -> AppResult<Vec<PromptWithVariants>> {
+    catalog(conn, "AND is_pinned = 1", cap)
+}
+
+pub fn find_prompts_by_exact_title(conn: &Connection, title: &str) -> AppResult<Vec<SummaryRow>> {
+    query_summary_rows(
+        conn,
+        "SELECT p.id, p.title, p.description, p.is_favorite, p.is_pinned, p.updated_at
+         FROM prompts p
+         WHERE p.deleted_at IS NULL AND p.title = ?1
+         ORDER BY p.updated_at DESC NULLS LAST, p.id DESC",
+        params![title],
+        None,
+    )
+}
+
+pub fn update_prompt_content(
+    db: &mut Db,
+    prompt_id: &str,
+    variant_id: Option<&str>,
+    content: &str,
+) -> AppResult<PromptWithVariants> {
+    transaction::immediate(db, |conn| {
+        update_prompt_content_tx(conn, prompt_id, variant_id, content)
+    })
+}
+
+pub fn update_prompt_content_with_driver(
+    db: &mut Db,
+    prompt_id: &str,
+    variant_id: Option<&str>,
+    content: &str,
+    driver: &dyn transaction::TxDriver,
+    policy: &transaction::RetryPolicy,
+) -> AppResult<PromptWithVariants> {
+    transaction::immediate_with(db, driver, policy, |conn| {
+        update_prompt_content_tx(conn, prompt_id, variant_id, content)
+    })
+}
+
+fn update_prompt_content_tx(
+    conn: &Connection,
+    prompt_id: &str,
+    variant_id: Option<&str>,
+    content: &str,
+) -> AppResult<PromptWithVariants> {
+    ensure_prompt_exists(conn, prompt_id)?;
+    let variant_id = match variant_id {
+        Some(variant_id) => {
+            ensure_variant_belongs_to_prompt(conn, prompt_id, variant_id)?;
+            variant_id.to_string()
+        }
+        None => get_active_primary_variant_id(conn, prompt_id)?,
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let affected = conn
+        .execute(
+            "UPDATE variants SET content = ?1, updated_at = ?2
+             WHERE id = ?3 AND prompt_id = ?4 AND deleted_at IS NULL",
+            params![content, now, variant_id, prompt_id],
+        )
+        .map_err(AppError::from)?;
+    transaction::expect_one(affected)?;
+    let affected = conn
+        .execute(
+            "UPDATE prompts SET updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![now, prompt_id],
+        )
+        .map_err(AppError::from)?;
+    transaction::expect_one(affected)?;
+    update_fts_index_tx(conn, prompt_id)?;
+    get_prompt_by_id(conn, prompt_id)
+}
+
+pub fn complete_prompt_ids(conn: &Connection, prefix: &str, cap: u32) -> AppResult<Vec<String>> {
+    complete_ids(conn, "prompts", prefix, cap, Some("deleted_at IS NULL"))
+}
+
+fn query_summary_rows<P>(
+    conn: &Connection,
+    sql: &str,
+    parameters: P,
+    snippet: Option<&str>,
+) -> AppResult<Vec<SummaryRow>>
+where
+    P: rusqlite::Params,
+{
+    let mut stmt = conn.prepare(sql).map_err(AppError::from)?;
+    let rows = stmt
+        .query_map(parameters, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)? != 0,
+                row.get::<_, i64>(4)? != 0,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .map_err(AppError::from)?;
+    let mut summaries = Vec::new();
+    for row in rows {
+        let (id, title, description, is_favorite, is_pinned, updated_at) =
+            row.map_err(AppError::from)?;
+        summaries.push(SummaryRow {
+            tags: tag_names(conn, &id)?,
+            id,
+            title,
+            description,
+            is_favorite,
+            is_pinned,
+            updated_at,
+            snippet: snippet.map(str::to_string),
+        });
+    }
+    Ok(summaries)
+}
+
+fn tag_names(conn: &Connection, prompt_id: &str) -> AppResult<Vec<String>> {
+    Ok(tag_service::get_tags_for_prompt(conn, prompt_id)?
+        .into_iter()
+        .map(|tag| tag.name)
+        .collect())
+}
+
+fn catalog(conn: &Connection, predicate: &str, cap: u32) -> AppResult<Vec<PromptWithVariants>> {
+    let sql = format!(
+        "SELECT id FROM prompts
+         WHERE deleted_at IS NULL {predicate}
+         ORDER BY title ASC, id ASC
+         LIMIT ?1"
+    );
+    let ids = {
+        let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
+        let rows = stmt
+            .query_map(params![i64::from(cap)], |row| row.get::<_, String>(0))
+            .map_err(AppError::from)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(AppError::from)?
+    };
+    ids.into_iter()
+        .map(|id| get_prompt_by_id(conn, &id))
+        .collect()
+}
+
+fn complete_ids(
+    conn: &Connection,
+    table: &str,
+    prefix: &str,
+    cap: u32,
+    predicate: Option<&str>,
+) -> AppResult<Vec<String>> {
+    let predicate = predicate
+        .map(|predicate| format!("WHERE {predicate} AND"))
+        .unwrap_or_else(|| "WHERE".to_string());
+    let sql = format!(
+        "SELECT id FROM {table}
+         {predicate}
+           (lower(title) LIKE lower(?1) || '%' ESCAPE '\\'
+            OR lower(id) LIKE lower(?1) || '%' ESCAPE '\\')
+         ORDER BY title ASC, id ASC
+         LIMIT ?2"
+    );
+    let escaped = escape_like(prefix);
+    let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
+    let rows = stmt
+        .query_map(params![escaped, i64::from(cap) + 1], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(AppError::from)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)
+}
+
+pub(crate) fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 pub fn list_prompts_page(
@@ -522,6 +847,18 @@ pub fn delete_prompt(conn: &mut Db, id: &str) -> AppResult<()> {
 
 pub fn record_copy(conn: &mut Db, prompt_id: &str, variant_id: Option<&str>) -> AppResult<String> {
     transaction::immediate(conn, |tx| record_copy_tx(tx, prompt_id, variant_id))
+}
+
+pub fn record_copy_with_driver(
+    db: &mut Db,
+    prompt_id: &str,
+    variant_id: Option<&str>,
+    driver: &dyn transaction::TxDriver,
+    policy: &transaction::RetryPolicy,
+) -> AppResult<String> {
+    transaction::immediate_with(db, driver, policy, |conn| {
+        record_copy_tx(conn, prompt_id, variant_id)
+    })
 }
 
 pub(crate) fn record_copy_tx(

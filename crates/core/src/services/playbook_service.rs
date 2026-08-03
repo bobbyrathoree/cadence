@@ -13,6 +13,14 @@ use crate::services::{prompt_service, transaction};
 
 const ACTIVE_SESSION_CONFLICT: &str = "End the active session to edit this playbook";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaybookCountRow {
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub step_count: i64,
+}
+
 pub fn create_playbook(
     conn: &mut Db,
     title: &str,
@@ -139,6 +147,77 @@ pub fn list_playbooks(conn: &Connection) -> AppResult<Vec<Playbook>> {
                 description: row.get(2)?,
                 created_at: row.get(3)?,
                 updated_at: row.get(4)?,
+            })
+        })
+        .map_err(AppError::from)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)
+}
+
+pub fn list_playbooks_with_counts(conn: &Connection) -> AppResult<Vec<PlaybookCountRow>> {
+    query_playbooks_with_counts(
+        conn,
+        "SELECT p.id, p.title, p.description, COUNT(s.id)
+         FROM playbooks p
+         LEFT JOIN playbook_steps s ON s.playbook_id = p.id
+         GROUP BY p.id, p.title, p.description
+         ORDER BY p.title ASC, p.id ASC",
+        [],
+    )
+}
+
+pub fn find_playbooks_by_exact_title(
+    conn: &Connection,
+    title: &str,
+) -> AppResult<Vec<PlaybookCountRow>> {
+    query_playbooks_with_counts(
+        conn,
+        "SELECT p.id, p.title, p.description, COUNT(s.id)
+         FROM playbooks p
+         LEFT JOIN playbook_steps s ON s.playbook_id = p.id
+         WHERE p.title = ?1
+         GROUP BY p.id, p.title, p.description
+         ORDER BY p.title ASC, p.id ASC",
+        params![title],
+    )
+}
+
+pub fn complete_playbook_ids(conn: &Connection, prefix: &str, cap: u32) -> AppResult<Vec<String>> {
+    let escaped = prompt_service::escape_like(prefix);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM playbooks
+             WHERE lower(title) LIKE lower(?1) || '%' ESCAPE '\\'
+                OR lower(id) LIKE lower(?1) || '%' ESCAPE '\\'
+             ORDER BY title ASC, id ASC
+             LIMIT ?2",
+        )
+        .map_err(AppError::from)?;
+    let rows = stmt
+        .query_map(params![escaped, i64::from(cap) + 1], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(AppError::from)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)
+}
+
+fn query_playbooks_with_counts<P>(
+    conn: &Connection,
+    sql: &str,
+    parameters: P,
+) -> AppResult<Vec<PlaybookCountRow>>
+where
+    P: rusqlite::Params,
+{
+    let mut stmt = conn.prepare(sql).map_err(AppError::from)?;
+    let rows = stmt
+        .query_map(parameters, |row| {
+            Ok(PlaybookCountRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                step_count: row.get(3)?,
             })
         })
         .map_err(AppError::from)?;

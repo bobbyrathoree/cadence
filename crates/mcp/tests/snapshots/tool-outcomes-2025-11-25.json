@@ -1,0 +1,83 @@
+{
+  "structured_success": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"created_at\":null,\"description\":null,\"id\":\"11111111-1111-4111-8111-111111111111\",\"is_favorite\":true,\"is_pinned\":false,\"primary_variant_id\":\"22222222-2222-4222-8222-222222222222\",\"tags\":[],\"title\":\"Fixture prompt\",\"updated_at\":\"2026-08-03T12:00:00Z\",\"variants\":[{\"content\":\"Fixture content\",\"id\":\"22222222-2222-4222-8222-222222222222\",\"is_primary\":true,\"label\":\"Primary\"}]}"
+      }
+    ],
+    "structuredContent": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "title": "Fixture prompt",
+      "description": null,
+      "tags": [],
+      "is_favorite": true,
+      "is_pinned": false,
+      "created_at": null,
+      "updated_at": "2026-08-03T12:00:00Z",
+      "primary_variant_id": "22222222-2222-4222-8222-222222222222",
+      "variants": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "label": "Primary",
+          "content": "Fixture content",
+          "is_primary": true
+        }
+      ]
+    },
+    "isError": false
+  },
+  "domain_error": {
+    "content": [
+      {
+        "type": "text",
+        "text": "not found"
+      }
+    ],
+    "isError": true
+  },
+  "redacted_internal": {
+    "content": [
+      {
+        "type": "text",
+        "text": "An internal error occurred"
+      }
+    ],
+    "isError": true
+  },
+  "unknown_field": {
+    "content": [
+      {
+        "type": "text",
+        "text": "failed to deserialize parameters: unknown field `extra`, expected `id_or_title`"
+      }
+    ],
+    "isError": true
+  },
+  "wrong_scalar": {
+    "content": [
+      {
+        "type": "text",
+        "text": "failed to deserialize parameters: invalid type: integer `7`, expected a string"
+      }
+    ],
+    "isError": true
+  },
+  "missing_required": {
+    "content": [
+      {
+        "type": "text",
+        "text": "failed to deserialize parameters: missing field `id_or_title`"
+      }
+    ],
+    "isError": true
+  },
+  "unknown_tool": {
+    "code": -32602,
+    "message": "tool not found"
+  },
+  "gate_disabled_tool": {
+    "code": -32602,
+    "message": "tool not found"
+  }
+}
