@@ -39,7 +39,9 @@ jobs:
           }
           NODE
       - name: Compile Tauri development binary
-        run: cargo build -p cadence --bin cadence
+        run: |
+          cargo build -p cadence --bin cadence
+          test ! -e target/debug/api_fatal_harness
       - name: Check workspace without staged sidecar
         run: |
           cargo clippy --workspace --all-targets -- -D warnings

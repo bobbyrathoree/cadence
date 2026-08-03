@@ -17,6 +17,7 @@ sidecar_source="$target_dir/cadence-mcp"
 staged_sidecar="$root_dir/src-tauri/binaries/cadence-mcp-$target"
 smoke_path="$root_dir/target/release/cadence-mcp-smoke"
 hash_file="$bundle_dir/release-cdhashes.env"
+obsolete_harness="$target_dir/api_fatal_harness"
 version="$(
   node -e '
     const fs = require("node:fs");
@@ -65,12 +66,20 @@ mkdir -p "$(dirname "$staged_sidecar")"
 cp "$sidecar_source" "$staged_sidecar"
 
 printf 'Building application bundle with the release-only sidecar overlay...\n'
+# A pre-fix release may have left this auto-discovered test binary behind.
+rm -f "$obsolete_harness" "$obsolete_harness.d"
+rm -rf "$app_path"
 npm run tauri -- build \
   --target "$target" \
   --ci \
   --no-sign \
   --config src-tauri/tauri.release.conf.json \
   --bundles app
+[[ ! -e "$obsolete_harness" ]] || {
+  printf 'Release build unexpectedly produced test harness: %s\n' \
+    "$obsolete_harness" >&2
+  exit 1
+}
 [[ -d "$app_path" ]] || {
   printf 'Expected application bundle was not produced: %s\n' "$app_path" >&2
   exit 1
