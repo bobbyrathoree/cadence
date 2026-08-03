@@ -25,13 +25,29 @@ use crate::services::{
 };
 use crate::state::AppState;
 
+fn with_db<T>(
+    state: &AppState,
+    operation: impl FnOnce(&mut cadence_core::db::Db) -> crate::error::AppResult<T>,
+) -> Result<T, String> {
+    state
+        .main
+        .with_sync(operation)
+        .map_err(|error| error.ipc_message())
+}
+
+fn with_db_string<T>(
+    state: &AppState,
+    operation: impl FnOnce(&mut cadence_core::db::Db) -> Result<T, String>,
+) -> Result<T, String> {
+    state
+        .main
+        .with_sync(|db| Ok(operation(db)))
+        .map_err(|error| error.ipc_message())?
+}
+
 #[tauri::command]
 pub fn get_api_enabled(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    settings_service::get_api_enabled(&conn).map_err(|error| error.ipc_message())
+    with_db(&state, |db| settings_service::get_api_enabled(&db.conn))
 }
 
 #[tauri::command]
@@ -42,7 +58,7 @@ pub async fn set_api_enabled(
 ) -> Result<ApiStatus, String> {
     let mut api = state.api.lock().await;
     let status = api
-        .set_enabled(&state.db, enabled)
+        .set_enabled(enabled)
         .await
         .map_err(|error| error.ipc_message())?;
     let _ = app.emit("db-changed", ());
@@ -56,12 +72,9 @@ pub fn list_prompts(
     offset: Option<i64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PromptListItem>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::list_prompts_page(&conn, filter.as_deref(), limit, offset)
-        .map_err(|error| error.ipc_message())
+    with_db(&state, |db| {
+        prompt_service::list_prompts_page(&db.conn, filter.as_deref(), limit, offset)
+    })
 }
 
 #[tauri::command]
@@ -69,11 +82,7 @@ pub fn get_prompt(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<PromptWithVariants, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::get_prompt_by_id(&conn, &id).map_err(|e| e.to_string())
+    with_db(&state, |db| prompt_service::get_prompt_by_id(&db.conn, &id))
 }
 
 #[tauri::command]
@@ -82,11 +91,7 @@ pub fn create_prompt(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PromptWithVariants, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = prompt_service::create_prompt(&mut conn, request).map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| prompt_service::create_prompt(db, request))?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -98,11 +103,7 @@ pub fn update_prompt(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::update_prompt(&mut conn, &id, request).map_err(|e| e.to_string())?;
+    with_db(&state, |db| prompt_service::update_prompt(db, &id, request))?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -113,11 +114,7 @@ pub fn delete_prompt(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::delete_prompt(&mut conn, &id).map_err(|e| e.to_string())?;
+    with_db(&state, |db| prompt_service::delete_prompt(db, &id))?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -128,8 +125,7 @@ pub fn toggle_favorite(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
-    let mut conn = state.db.lock().map_err(|_| "Database is unavailable")?;
-    let new_state = prompt_service::toggle_favorite(&mut conn, &id).map_err(|e| e.ipc_message())?;
+    let new_state = with_db(&state, |db| prompt_service::toggle_favorite(db, &id))?;
     let _ = app.emit("db-changed", ());
     Ok(new_state)
 }
@@ -142,12 +138,9 @@ pub fn add_variant(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Variant, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = prompt_service::add_variant(&mut conn, &prompt_id, &label, &content)
-        .map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| {
+        prompt_service::add_variant(db, &prompt_id, &label, &content)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -160,12 +153,9 @@ pub fn update_variant(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::update_variant(&mut conn, &id, &content, label.as_deref())
-        .map_err(|e| e.to_string())?;
+    with_db(&state, |db| {
+        prompt_service::update_variant(db, &id, &content, label.as_deref())
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -176,22 +166,14 @@ pub fn delete_variant(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::delete_variant(&mut conn, &id).map_err(|e| e.to_string())?;
+    with_db(&state, |db| prompt_service::delete_variant(db, &id))?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
 
 #[tauri::command]
 pub fn list_tags(state: tauri::State<'_, AppState>) -> Result<Vec<Tag>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    tag_service::list_tags(&conn).map_err(|e| e.to_string())
+    with_db(&state, |db| tag_service::list_tags(&db.conn))
 }
 
 #[tauri::command]
@@ -200,9 +182,7 @@ pub fn create_tag(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Tag, String> {
-    let mut conn = state.db.lock().map_err(|_| "Database is unavailable")?;
-    let tag = tag_service::create_or_update_tag(&mut conn, request)
-        .map_err(|error| error.ipc_message())?;
+    let tag = with_db(&state, |db| tag_service::create_or_update_tag(db, request))?;
     let _ = app.emit("db-changed", ());
     Ok(tag)
 }
@@ -214,12 +194,9 @@ pub fn add_tags_to_prompt(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<Tag>, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result =
-        tag_service::add_tags_to_prompt(&mut conn, &prompt_id, &tags).map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| {
+        tag_service::add_tags_to_prompt(db, &prompt_id, &tags)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -231,23 +208,16 @@ pub fn remove_tag_from_prompt(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    tag_service::remove_tag_from_prompt(&mut conn, &prompt_id, &tag_id)
-        .map_err(|e| e.to_string())?;
+    with_db(&state, |db| {
+        tag_service::remove_tag_from_prompt(db, &prompt_id, &tag_id)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
 
 #[tauri::command]
 pub fn list_collections(state: tauri::State<'_, AppState>) -> Result<Vec<Collection>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    collection_service::list_collections(&conn).map_err(|e| e.to_string())
+    with_db(&state, |db| collection_service::list_collections(&db.conn))
 }
 
 #[tauri::command]
@@ -256,12 +226,9 @@ pub fn create_collection(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Collection, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result =
-        collection_service::create_collection(&mut conn, request).map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| {
+        collection_service::create_collection(db, request)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -273,12 +240,9 @@ pub fn add_prompt_to_collection(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    collection_service::add_prompt_to_collection(&mut conn, &collection_id, &prompt_id)
-        .map_err(|error| error.ipc_message())?;
+    with_db(&state, |db| {
+        collection_service::add_prompt_to_collection(db, &collection_id, &prompt_id)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -290,12 +254,9 @@ pub fn remove_prompt_from_collection(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    collection_service::remove_prompt_from_collection(&mut conn, &collection_id, &prompt_id)
-        .map_err(|error| error.ipc_message())?;
+    with_db(&state, |db| {
+        collection_service::remove_prompt_from_collection(db, &collection_id, &prompt_id)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -307,12 +268,9 @@ pub fn get_collection_prompts(
     offset: Option<i64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PromptListItem>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    collection_service::get_collection_prompts_page(&conn, &collection_id, limit, offset)
-        .map_err(|error| error.ipc_message())
+    with_db(&state, |db| {
+        collection_service::get_collection_prompts_page(&db.conn, &collection_id, limit, offset)
+    })
 }
 
 #[tauri::command]
@@ -321,11 +279,9 @@ pub fn search_prompts(
     limit: Option<i64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PromptListItem>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    search_service::search_prompts_page(&conn, &query, limit).map_err(|error| error.ipc_message())
+    with_db(&state, |db| {
+        search_service::search_prompts_page(&db.conn, &query, limit)
+    })
 }
 
 #[tauri::command]
@@ -335,12 +291,9 @@ pub fn record_copy(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = prompt_service::record_copy(&mut conn, &prompt_id, variant_id.as_deref())
-        .map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| {
+        prompt_service::record_copy(db, &prompt_id, variant_id.as_deref())
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -350,20 +303,12 @@ pub fn get_prompt_usage(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<PromptUsage, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::get_prompt_usage(&conn, &id).map_err(|error| error.ipc_message())
+    with_db(&state, |db| prompt_service::get_prompt_usage(&db.conn, &id))
 }
 
 #[tauri::command]
 pub fn get_prompt_counts(state: tauri::State<'_, AppState>) -> Result<PromptCounts, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    prompt_service::get_prompt_counts(&conn).map_err(|error| error.ipc_message())
+    with_db(&state, |db| prompt_service::get_prompt_counts(&db.conn))
 }
 
 // ------------------------------------------------------------------
@@ -372,11 +317,7 @@ pub fn get_prompt_counts(state: tauri::State<'_, AppState>) -> Result<PromptCoun
 
 #[tauri::command]
 pub fn list_playbooks(state: tauri::State<'_, AppState>) -> Result<Vec<Playbook>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::list_playbooks(&conn).map_err(|e| e.to_string())
+    with_db(&state, |db| playbook_service::list_playbooks(&db.conn))
 }
 
 #[tauri::command]
@@ -384,11 +325,7 @@ pub fn get_playbook(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<PlaybookWithSteps, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::get_playbook(&conn, &id).map_err(|e| e.to_string())
+    with_db(&state, |db| playbook_service::get_playbook(&db.conn, &id))
 }
 
 #[tauri::command]
@@ -398,12 +335,9 @@ pub fn create_playbook(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Playbook, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = playbook_service::create_playbook(&mut conn, &title, description.as_deref())
-        .map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| {
+        playbook_service::create_playbook(db, &title, description.as_deref())
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -415,12 +349,9 @@ pub fn update_playbook(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Playbook, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let playbook = playbook_service::update_playbook(&mut conn, &id, request)
-        .map_err(|error| error.ipc_message())?;
+    let playbook = with_db(&state, |db| {
+        playbook_service::update_playbook(db, &id, request)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(playbook)
 }
@@ -431,11 +362,7 @@ pub fn delete_playbook(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::delete_playbook(&mut conn, &id).map_err(|error| error.ipc_message())?;
+    with_db(&state, |db| playbook_service::delete_playbook(db, &id))?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -447,12 +374,9 @@ pub fn add_step(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PlaybookStepWithPrompt, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = playbook_service::add_step(&mut conn, &playbook_id, spec)
-        .map_err(|error| error.ipc_message())?;
+    let result = with_db(&state, |db| {
+        playbook_service::add_step(db, &playbook_id, spec)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -465,12 +389,9 @@ pub fn update_step(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PlaybookStepWithPrompt, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = playbook_service::update_step(&mut conn, &playbook_id, &step_id, spec)
-        .map_err(|error| error.ipc_message())?;
+    let result = with_db(&state, |db| {
+        playbook_service::update_step(db, &playbook_id, &step_id, spec)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -482,12 +403,9 @@ pub fn remove_step(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::remove_step(&mut conn, &playbook_id, &step_id)
-        .map_err(|error| error.ipc_message())?;
+    with_db(&state, |db| {
+        playbook_service::remove_step(db, &playbook_id, &step_id)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -499,23 +417,16 @@ pub fn reorder_steps(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::reorder_steps(&mut conn, &playbook_id, &ordered_step_ids)
-        .map_err(|error| error.ipc_message())?;
+    with_db(&state, |db| {
+        playbook_service::reorder_steps(db, &playbook_id, &ordered_step_ids)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_playbook_session(state: tauri::State<'_, AppState>) -> Result<PlaybookSession, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::get_session(&conn).map_err(|e| e.to_string())
+    with_db(&state, |db| playbook_service::get_session(&db.conn))
 }
 
 #[tauri::command]
@@ -524,12 +435,9 @@ pub fn start_playbook_session(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PlaybookSession, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result =
-        playbook_service::start_session(&mut conn, &playbook_id).map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| {
+        playbook_service::start_session(db, &playbook_id)
+    })?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -539,11 +447,7 @@ pub fn advance_playbook_step(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PlaybookSession, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = playbook_service::advance_step(&mut conn).map_err(|e| e.to_string())?;
+    let result = with_db(&state, playbook_service::advance_step)?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -553,11 +457,7 @@ pub fn end_playbook_session(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    playbook_service::end_session(&mut conn).map_err(|e| e.to_string())?;
+    with_db(&state, playbook_service::end_session)?;
     let _ = app.emit("db-changed", ());
     Ok(())
 }
@@ -572,22 +472,14 @@ pub fn import_json(
     app: tauri::AppHandle,
     json_data: String,
 ) -> Result<ImportResult, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result = import_export::import_json(&mut conn, &json_data).map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| import_export::import_json(db, &json_data))?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
 
 #[tauri::command]
 pub fn export_json(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    import_export::export_json(&conn).map_err(|e| e.to_string())
+    with_db(&state, |db| import_export::export_json(&db.conn))
 }
 
 #[tauri::command]
@@ -596,12 +488,7 @@ pub fn import_markdown_files(
     app: tauri::AppHandle,
     files: Vec<(String, String)>,
 ) -> Result<ImportResult, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let result =
-        import_export::import_markdown_batch(&mut conn, files).map_err(|e| e.to_string())?;
+    let result = with_db(&state, |db| import_export::import_markdown_batch(db, files))?;
     let _ = app.emit("db-changed", ());
     Ok(result)
 }
@@ -614,11 +501,9 @@ pub fn import_markdown_files(
 pub fn get_keyboard_shortcuts(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<KeyboardShortcut>, String> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    settings_service::get_keyboard_shortcuts(&conn).map_err(|e| e.to_string())
+    with_db(&state, |db| {
+        settings_service::get_keyboard_shortcuts(&db.conn)
+    })
 }
 
 fn persist_global_shortcut_change<T, Persist>(
@@ -651,35 +536,28 @@ pub fn update_keyboard_shortcut(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<KeyboardShortcut>, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
+    let result = with_db_string(&state, |db| {
+        if action == GLOBAL_SEARCH_ACTION {
+            let old_shortcuts = settings_service::get_keyboard_shortcuts(&db.conn)
+                .map_err(|error| error.to_string())?;
+            let old_binding = old_shortcuts
+                .iter()
+                .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
+                .map(|shortcut| shortcut.binding.clone())
+                .ok_or_else(|| "Global search shortcut is unavailable".to_string())?;
 
-    if action == GLOBAL_SEARCH_ACTION {
-        let old_shortcuts =
-            settings_service::get_keyboard_shortcuts(&conn).map_err(|e| e.to_string())?;
-        let old_binding = old_shortcuts
-            .iter()
-            .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
-            .map(|shortcut| shortcut.binding.clone())
-            .ok_or_else(|| "Global search shortcut is unavailable".to_string())?;
-
-        let result = persist_global_shortcut_change(&app, &old_binding, &binding, || {
-            settings_service::update_shortcut(&mut conn, &action, &binding)
+            persist_global_shortcut_change(&app, &old_binding, &binding, || {
+                settings_service::update_shortcut(db, &action, &binding)
+                    .map_err(|error| error.to_string())
+            })
+        } else {
+            settings_service::update_shortcut(db, &action, &binding)
                 .map_err(|error| error.to_string())
-        })?;
-
-        let _ = app.emit("shortcuts-changed", ());
-        let _ = app.emit("db-changed", ());
-        Ok(result)
-    } else {
-        let result = settings_service::update_shortcut(&mut conn, &action, &binding)
-            .map_err(|e| e.to_string())?;
-        let _ = app.emit("shortcuts-changed", ());
-        let _ = app.emit("db-changed", ());
-        Ok(result)
-    }
+        }
+    })?;
+    let _ = app.emit("shortcuts-changed", ());
+    let _ = app.emit("db-changed", ());
+    Ok(result)
 }
 
 #[tauri::command]
@@ -687,22 +565,19 @@ pub fn reset_keyboard_shortcuts(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<KeyboardShortcut>, String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "Database is unavailable".to_string())?;
-    let old_shortcuts =
-        settings_service::get_keyboard_shortcuts(&conn).map_err(|error| error.to_string())?;
-    let old_binding = old_shortcuts
-        .iter()
-        .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
-        .map(|shortcut| shortcut.binding.clone())
-        .ok_or_else(|| "Global search shortcut is unavailable".to_string())?;
+    let result = with_db_string(&state, |db| {
+        let old_shortcuts = settings_service::get_keyboard_shortcuts(&db.conn)
+            .map_err(|error| error.to_string())?;
+        let old_binding = old_shortcuts
+            .iter()
+            .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
+            .map(|shortcut| shortcut.binding.clone())
+            .ok_or_else(|| "Global search shortcut is unavailable".to_string())?;
 
-    let result =
         persist_global_shortcut_change(&app, &old_binding, DEFAULT_GLOBAL_SEARCH_SHORTCUT, || {
-            settings_service::reset_shortcuts(&mut conn).map_err(|error| error.to_string())
-        })?;
+            settings_service::reset_shortcuts(db).map_err(|error| error.to_string())
+        })
+    })?;
 
     let _ = app.emit("shortcuts-changed", ());
     let _ = app.emit("db-changed", ());

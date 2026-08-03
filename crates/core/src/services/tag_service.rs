@@ -1,10 +1,11 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::tag::{CreateTagRequest, Tag};
 use crate::services::{prompt_service, transaction};
 
-pub fn get_or_create_tag(conn: &mut Connection, name: &str) -> AppResult<Tag> {
+pub fn get_or_create_tag(conn: &mut Db, name: &str) -> AppResult<Tag> {
     transaction::immediate(conn, |tx| get_or_create_tag_tx(tx, name))
 }
 
@@ -44,8 +45,9 @@ pub(crate) fn get_or_create_tag_tx(conn: &Connection, name: &str) -> AppResult<T
     })
 }
 
-pub fn create_or_update_tag(conn: &mut Connection, request: CreateTagRequest) -> AppResult<Tag> {
-    transaction::immediate(conn, move |tx| {
+pub fn create_or_update_tag(conn: &mut Db, request: CreateTagRequest) -> AppResult<Tag> {
+    transaction::immediate(conn, |tx| {
+        let request = request.clone();
         let mut tag = get_or_create_tag_tx(tx, &request.name)?;
         if let Some(color) = request.color {
             let affected = tx
@@ -100,7 +102,7 @@ pub fn get_tags_for_prompt(conn: &Connection, prompt_id: &str) -> AppResult<Vec<
 }
 
 pub fn add_tags_to_prompt(
-    conn: &mut Connection,
+    conn: &mut Db,
     prompt_id: &str,
     tag_names: &[String],
 ) -> AppResult<Vec<Tag>> {
@@ -136,11 +138,7 @@ pub(crate) fn add_tags_to_prompt_tx(
     Ok(tags)
 }
 
-pub fn remove_tag_from_prompt(
-    conn: &mut Connection,
-    prompt_id: &str,
-    tag_id: &str,
-) -> AppResult<()> {
+pub fn remove_tag_from_prompt(conn: &mut Db, prompt_id: &str, tag_id: &str) -> AppResult<()> {
     transaction::immediate(conn, |tx| {
         tx.query_row(
             "SELECT 1 FROM prompts WHERE id = ?1 AND deleted_at IS NULL",

@@ -19,3 +19,11 @@ tokio = { version = "1", features = ["rt"] }
 [[test]]
 name = "db_open_tests"
 required-features = ["test-support"]
+
+[[test]]
+name = "busy_retry_tests"
+required-features = ["test-support"]
+
+[[test]]
+name = "db_access_tests"
+required-features = ["test-support"]

@@ -1,4 +1,4 @@
-use cadence_core::db::schema;
+use cadence_core::db::{schema, Db, Health};
 use cadence_core::error::AppError;
 use cadence_core::models::patch::PatchField;
 use cadence_core::models::playbook::{StepSpec, UpdatePlaybookRequest};
@@ -6,14 +6,17 @@ use cadence_core::models::prompt::{CreatePromptRequest, UpdatePromptRequest};
 use cadence_core::services::{playbook_service, prompt_service};
 use rusqlite::Connection;
 
-fn setup_db() -> Connection {
+fn setup_db() -> Db {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     schema::create_tables(&conn).unwrap();
-    conn
+    Db {
+        conn,
+        health: Health::exit_process(1),
+    }
 }
 
-fn create_prompt(conn: &mut Connection, title: &str) -> String {
+fn create_prompt(conn: &mut Db, title: &str) -> String {
     prompt_service::create_prompt(
         conn,
         CreatePromptRequest {

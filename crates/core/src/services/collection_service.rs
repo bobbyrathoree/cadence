@@ -1,15 +1,13 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::collection::{Collection, CreateCollectionRequest};
 use crate::models::prompt::PromptListItem;
 use crate::services::{pagination, tag_service, transaction};
 
-pub fn create_collection(
-    conn: &mut Connection,
-    request: CreateCollectionRequest,
-) -> AppResult<Collection> {
-    transaction::immediate(conn, move |tx| create_collection_tx(tx, request))
+pub fn create_collection(conn: &mut Db, request: CreateCollectionRequest) -> AppResult<Collection> {
+    transaction::immediate(conn, |tx| create_collection_tx(tx, request.clone()))
 }
 
 pub(crate) fn create_collection_tx(
@@ -352,7 +350,7 @@ fn get_smart_collection_prompts(
 }
 
 pub fn add_prompt_to_collection(
-    conn: &mut Connection,
+    conn: &mut Db,
     collection_id: &str,
     prompt_id: &str,
 ) -> AppResult<()> {
@@ -401,7 +399,7 @@ pub(crate) fn add_prompt_to_collection_tx(
 }
 
 pub fn remove_prompt_from_collection(
-    conn: &mut Connection,
+    conn: &mut Db,
     collection_id: &str,
     prompt_id: &str,
 ) -> AppResult<()> {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use cadence_core::db::{self, schema};
+use cadence_core::db::{self, schema, Db, Health};
 use cadence_core::error::AppError;
 use cadence_core::models::collection::CreateCollectionRequest;
 use cadence_core::models::patch::PatchField;
@@ -14,11 +14,14 @@ use cadence_core::services::{
 };
 use rusqlite::{params, Connection, TransactionBehavior};
 
-fn setup_db() -> Connection {
+fn setup_db() -> Db {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     schema::create_tables(&conn).unwrap();
-    conn
+    Db {
+        conn,
+        health: Health::exit_process(1),
+    }
 }
 
 fn prompt_request(title: &str) -> CreatePromptRequest {
@@ -32,14 +35,14 @@ fn prompt_request(title: &str) -> CreatePromptRequest {
     }
 }
 
-fn create_prompt(conn: &mut Connection, title: &str) -> String {
+fn create_prompt(conn: &mut Db, title: &str) -> String {
     prompt_service::create_prompt(conn, prompt_request(title))
         .unwrap()
         .prompt
         .id
 }
 
-fn create_collection(conn: &mut Connection) -> String {
+fn create_collection(conn: &mut Db) -> String {
     collection_service::create_collection(
         conn,
         CreateCollectionRequest {
@@ -359,8 +362,14 @@ fn seed_marker_prevents_reseeding_after_every_prompt_is_deleted() {
 #[test]
 fn two_wal_connections_wait_for_short_writer_then_succeed() {
     let path = unique_db_path("wal-contention");
-    let mut first = db::connect(&path).unwrap();
-    let mut second = db::connect(&path).unwrap();
+    let mut first = Db {
+        conn: db::connect(&path).unwrap(),
+        health: Health::exit_process(1),
+    };
+    let mut second = Db {
+        conn: db::connect(&path).unwrap(),
+        health: Health::exit_process(1),
+    };
 
     for conn in [&first, &second] {
         assert_eq!(

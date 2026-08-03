@@ -9,4 +9,4 @@ pub mod search_service;
 pub mod settings_service;
 pub mod tag_service;
 
-pub(crate) mod transaction;
+pub mod transaction;

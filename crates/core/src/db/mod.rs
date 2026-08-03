@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -116,6 +117,20 @@ impl Health {
 pub struct Db {
     pub conn: Connection,
     pub health: Health,
+}
+
+impl Deref for Db {
+    type Target = Connection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.conn
+    }
+}
+
+impl DerefMut for Db {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.conn
+    }
 }
 
 pub enum DbOpen {

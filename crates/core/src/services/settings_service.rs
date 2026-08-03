@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::settings::{default_shortcuts_map, KeyboardShortcut, SHORTCUT_ACTIONS};
 use crate::services::transaction;
@@ -19,7 +20,7 @@ pub fn get_setting(conn: &Connection, key: &str) -> AppResult<Option<String>> {
     .map_err(AppError::from)
 }
 
-pub fn set_setting(conn: &mut Connection, key: &str, value: &str) -> AppResult<()> {
+pub fn set_setting(conn: &mut Db, key: &str, value: &str) -> AppResult<()> {
     transaction::immediate(conn, |tx| set_setting_tx(tx, key, value))
 }
 
@@ -55,7 +56,7 @@ pub fn get_keyboard_shortcuts(conn: &Connection) -> AppResult<Vec<KeyboardShortc
 }
 
 pub fn update_shortcut(
-    conn: &mut Connection,
+    conn: &mut Db,
     action: &str,
     binding: &str,
 ) -> AppResult<Vec<KeyboardShortcut>> {
@@ -84,7 +85,7 @@ pub(crate) fn update_shortcut_tx(
     get_keyboard_shortcuts(conn)
 }
 
-pub fn reset_shortcuts(conn: &mut Connection) -> AppResult<Vec<KeyboardShortcut>> {
+pub fn reset_shortcuts(conn: &mut Db) -> AppResult<Vec<KeyboardShortcut>> {
     transaction::immediate(conn, reset_shortcuts_tx)
 }
 
@@ -105,7 +106,7 @@ pub fn get_api_enabled(conn: &Connection) -> AppResult<bool> {
     ))
 }
 
-pub fn set_api_enabled(conn: &mut Connection, enabled: bool) -> AppResult<()> {
+pub fn set_api_enabled(conn: &mut Db, enabled: bool) -> AppResult<()> {
     transaction::immediate(conn, |tx| set_api_enabled_tx(tx, enabled))
 }
 

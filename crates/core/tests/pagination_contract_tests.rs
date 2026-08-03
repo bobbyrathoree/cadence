@@ -1,14 +1,17 @@
-use cadence_core::db::schema;
+use cadence_core::db::{schema, Db, Health};
 use cadence_core::models::collection::CreateCollectionRequest;
 use cadence_core::models::prompt::CreatePromptRequest;
 use cadence_core::services::{collection_service, pagination, prompt_service, search_service};
 use rusqlite::{params, Connection};
 
-fn setup_db() -> Connection {
+fn setup_db() -> Db {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     schema::create_tables(&conn).unwrap();
-    conn
+    Db {
+        conn,
+        health: Health::exit_process(1),
+    }
 }
 
 fn insert_prompt(

@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 
+use crate::db::Db;
 use crate::error::AppResult;
 use crate::models::playbook::StepSpec;
 use crate::models::prompt::CreatePromptRequest;
@@ -7,7 +8,7 @@ use crate::services::{playbook_service, prompt_service, settings_service, transa
 
 const SEEDED_AT_KEY: &str = "seeded_at";
 
-pub fn seed_if_empty(conn: &mut Connection) -> AppResult<()> {
+pub fn seed_if_empty(conn: &mut Db) -> AppResult<()> {
     transaction::immediate(conn, |tx| {
         if settings_service::get_setting(tx, SEEDED_AT_KEY)?.is_some() {
             return Ok(());

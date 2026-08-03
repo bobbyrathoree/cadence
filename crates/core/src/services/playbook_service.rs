@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use rusqlite::{params, Connection};
 
+use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::patch::PatchField;
 use crate::models::playbook::{
@@ -13,7 +14,7 @@ use crate::services::{prompt_service, transaction};
 const ACTIVE_SESSION_CONFLICT: &str = "End the active session to edit this playbook";
 
 pub fn create_playbook(
-    conn: &mut Connection,
+    conn: &mut Db,
     title: &str,
     description: Option<&str>,
 ) -> AppResult<Playbook> {
@@ -146,11 +147,11 @@ pub fn list_playbooks(conn: &Connection) -> AppResult<Vec<Playbook>> {
 }
 
 pub fn update_playbook(
-    conn: &mut Connection,
+    conn: &mut Db,
     id: &str,
     request: UpdatePlaybookRequest,
 ) -> AppResult<Playbook> {
-    transaction::immediate(conn, move |tx| update_playbook_tx(tx, id, request))
+    transaction::immediate(conn, |tx| update_playbook_tx(tx, id, request.clone()))
 }
 
 pub(crate) fn update_playbook_tx(
@@ -203,7 +204,7 @@ pub(crate) fn update_playbook_tx(
     get_playbook_record(conn, id)
 }
 
-pub fn delete_playbook(conn: &mut Connection, id: &str) -> AppResult<()> {
+pub fn delete_playbook(conn: &mut Db, id: &str) -> AppResult<()> {
     transaction::immediate(conn, |tx| delete_playbook_tx(tx, id))
 }
 
@@ -217,11 +218,11 @@ fn delete_playbook_tx(conn: &Connection, id: &str) -> AppResult<()> {
 }
 
 pub fn add_step(
-    conn: &mut Connection,
+    conn: &mut Db,
     playbook_id: &str,
     spec: StepSpec,
 ) -> AppResult<PlaybookStepWithPrompt> {
-    transaction::immediate(conn, move |tx| add_step_tx(tx, playbook_id, spec))
+    transaction::immediate(conn, |tx| add_step_tx(tx, playbook_id, spec.clone()))
 }
 
 pub(crate) fn add_step_tx(
@@ -280,13 +281,13 @@ pub(crate) fn add_step_tx(
 }
 
 pub fn update_step(
-    conn: &mut Connection,
+    conn: &mut Db,
     playbook_id: &str,
     step_id: &str,
     spec: StepSpec,
 ) -> AppResult<PlaybookStepWithPrompt> {
-    transaction::immediate(conn, move |tx| {
-        update_step_tx(tx, playbook_id, step_id, spec)
+    transaction::immediate(conn, |tx| {
+        update_step_tx(tx, playbook_id, step_id, spec.clone())
     })
 }
 
@@ -337,7 +338,7 @@ fn update_step_tx(
     )
 }
 
-pub fn remove_step(conn: &mut Connection, playbook_id: &str, step_id: &str) -> AppResult<()> {
+pub fn remove_step(conn: &mut Db, playbook_id: &str, step_id: &str) -> AppResult<()> {
     transaction::immediate(conn, |tx| remove_step_tx(tx, playbook_id, step_id))
 }
 
@@ -356,7 +357,7 @@ pub(crate) fn remove_step_tx(conn: &Connection, playbook_id: &str, step_id: &str
 }
 
 pub fn reorder_steps(
-    conn: &mut Connection,
+    conn: &mut Db,
     playbook_id: &str,
     ordered_step_ids: &[String],
 ) -> AppResult<()> {
@@ -455,7 +456,7 @@ pub fn get_session(conn: &Connection) -> AppResult<PlaybookSession> {
     .map_err(AppError::from)
 }
 
-pub fn start_session(conn: &mut Connection, playbook_id: &str) -> AppResult<PlaybookSession> {
+pub fn start_session(conn: &mut Db, playbook_id: &str) -> AppResult<PlaybookSession> {
     transaction::immediate(conn, |tx| start_session_tx(tx, playbook_id))
 }
 
@@ -473,7 +474,7 @@ pub(crate) fn start_session_tx(conn: &Connection, playbook_id: &str) -> AppResul
     get_session(conn)
 }
 
-pub fn advance_step(conn: &mut Connection) -> AppResult<PlaybookSession> {
+pub fn advance_step(conn: &mut Db) -> AppResult<PlaybookSession> {
     transaction::immediate(conn, advance_step_tx)
 }
 
@@ -490,7 +491,7 @@ pub(crate) fn advance_step_tx(conn: &Connection) -> AppResult<PlaybookSession> {
     get_session(conn)
 }
 
-pub fn end_session(conn: &mut Connection) -> AppResult<()> {
+pub fn end_session(conn: &mut Db) -> AppResult<()> {
     transaction::immediate(conn, end_session_tx)
 }
 

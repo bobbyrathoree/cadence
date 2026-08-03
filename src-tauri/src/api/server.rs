@@ -1,8 +1,8 @@
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::{extract::DefaultBodyLimit, middleware, Router};
-use rusqlite::Connection;
+use cadence_core::db_access::DbAccess;
 use tauri::{AppHandle, Emitter};
 use tokio::net::TcpListener;
 
@@ -14,7 +14,7 @@ const MAX_API_BODY_BYTES: usize = 4 * 1024 * 1024;
 /// State shared with axum route handlers.
 /// Uses a separate SQLite connection from the Tauri-managed one.
 pub struct ApiState {
-    pub db: Mutex<Connection>,
+    pub db: DbAccess,
     pub api_key: String,
     pub api_port: u16,
     pub app_handle: Option<AppHandle>,

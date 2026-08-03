@@ -1,7 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use cadence_core::db_access::DbAccess;
 use cadence_lib::api::server::{self, ApiState};
-use cadence_lib::db::schema;
+use cadence_lib::db::{schema, Db, Health};
 use cadence_lib::models::collection::CreateCollectionRequest;
 use cadence_lib::models::playbook::StepSpec;
 use cadence_lib::models::prompt::{CreatePromptRequest, PromptListItem};
@@ -35,27 +36,31 @@ struct TestServer {
 
 impl TestServer {
     async fn start() -> Self {
-        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         schema::create_tables(&conn).unwrap();
+        let mut db = Db {
+            conn,
+            health: Health::exit_process(1),
+        };
 
         let prompt = prompt_service::create_prompt(
-            &mut conn,
+            &mut db,
             prompt_request("Matrix prompt", vec!["matrix-tag".to_string()]),
         )
         .unwrap();
         let variant = prompt_service::add_variant(
-            &mut conn,
+            &mut db,
             &prompt.prompt.id,
             "Secondary",
             "secondary content",
         )
         .unwrap();
         let second_prompt =
-            prompt_service::create_prompt(&mut conn, prompt_request("Second prompt", vec![]))
+            prompt_service::create_prompt(&mut db, prompt_request("Second prompt", vec![]))
                 .unwrap();
         let collection = collection_service::create_collection(
-            &mut conn,
+            &mut db,
             CreateCollectionRequest {
                 name: "Matrix collection".to_string(),
                 description: None,
@@ -66,18 +71,17 @@ impl TestServer {
             },
         )
         .unwrap();
-        let playbook =
-            playbook_service::create_playbook(&mut conn, "Matrix playbook", None).unwrap();
+        let playbook = playbook_service::create_playbook(&mut db, "Matrix playbook", None).unwrap();
         let step =
-            playbook_service::add_step(&mut conn, &playbook.id, single_step(&prompt.prompt.id))
+            playbook_service::add_step(&mut db, &playbook.id, single_step(&prompt.prompt.id))
                 .unwrap();
         let second_step = playbook_service::add_step(
-            &mut conn,
+            &mut db,
             &playbook.id,
             single_step(&second_prompt.prompt.id),
         )
         .unwrap();
-        let tag = tag_service::list_tags(&conn)
+        let tag = tag_service::list_tags(&db.conn)
             .unwrap()
             .into_iter()
             .find(|tag| tag.name == "matrix-tag")
@@ -87,7 +91,7 @@ impl TestServer {
         let port = listener.local_addr().unwrap().port();
         let key = "cad_test_key".to_string();
         let state = Arc::new(ApiState {
-            db: Mutex::new(conn),
+            db: DbAccess::new(db),
             api_key: key.clone(),
             api_port: port,
             app_handle: None,
@@ -428,22 +432,30 @@ async fn manual_collection_http_pages_follow_exact_position_order() {
     let _guard = HTTP_TEST_LOCK.lock().await;
     let server = TestServer::start().await;
     {
-        let conn = server.state.db.lock().unwrap();
-        for position in 0..250 {
-            let id = format!("http-member-{:03}", 249 - position);
-            conn.execute(
-                "INSERT INTO prompts (id, title, is_favorite, copy_count, updated_at)
+        server
+            .state
+            .db
+            .with_sync(|db| {
+                for position in 0..250 {
+                    let id = format!("http-member-{:03}", 249 - position);
+                    db.conn
+                        .execute(
+                            "INSERT INTO prompts (id, title, is_favorite, copy_count, updated_at)
                  VALUES (?1, ?1, 0, 0, '2026-08-02T00:00:00Z')",
-                [&id],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO collection_prompts (collection_id, prompt_id, position)
+                            [&id],
+                        )
+                        .unwrap();
+                    db.conn
+                        .execute(
+                            "INSERT INTO collection_prompts (collection_id, prompt_id, position)
                  VALUES (?1, ?2, ?3)",
-                rusqlite::params![server.ids.collection, id, position],
-            )
+                            rusqlite::params![server.ids.collection, id, position],
+                        )
+                        .unwrap();
+                }
+                Ok(())
+            })
             .unwrap();
-        }
     }
 
     for (offset, length) in [(0, 100), (100, 100), (200, 50)] {
@@ -524,8 +536,11 @@ async fn record_copy_for_soft_deleted_prompt_maps_to_not_found() {
     let _guard = HTTP_TEST_LOCK.lock().await;
     let server = TestServer::start().await;
     {
-        let mut conn = server.state.db.lock().unwrap();
-        prompt_service::delete_prompt(&mut conn, &server.ids.prompt).unwrap();
+        server
+            .state
+            .db
+            .with_sync(|db| prompt_service::delete_prompt(db, &server.ids.prompt))
+            .unwrap();
     }
 
     let response = server
@@ -600,15 +615,16 @@ async fn invalid_and_conflict_errors_map_to_400_and_409_without_sql_details() {
     server
         .state
         .db
-        .lock()
-        .unwrap()
-        .execute_batch(
-            "CREATE TRIGGER secret_conflict
+        .with_sync(|db| {
+            db.conn.execute_batch(
+                "CREATE TRIGGER secret_conflict
              BEFORE UPDATE OF title ON prompts
              BEGIN
                SELECT RAISE(ABORT, 'secret prompts schema detail');
              END;",
-        )
+            )?;
+            Ok(())
+        })
         .unwrap();
     let conflict = server
         .authenticated(
@@ -674,10 +690,15 @@ async fn active_playbook_structural_routes_return_conflict_and_parent_mismatch_s
     let _guard = HTTP_TEST_LOCK.lock().await;
     let server = TestServer::start().await;
     let other_playbook = {
-        let mut conn = server.state.db.lock().unwrap();
-        let other = playbook_service::create_playbook(&mut conn, "Other", None).unwrap();
-        playbook_service::start_session(&mut conn, &server.ids.playbook).unwrap();
-        other.id
+        server
+            .state
+            .db
+            .with_sync(|db| {
+                let other = playbook_service::create_playbook(db, "Other", None)?;
+                playbook_service::start_session(db, &server.ids.playbook)?;
+                Ok(other.id)
+            })
+            .unwrap()
     };
     let step_body = format!(
         r#"{{"step_type":"single","prompt_id":"{}","choice_prompt_ids":[],"instructions":null}}"#,
@@ -748,9 +769,10 @@ async fn internal_errors_have_sanitized_bodies() {
     server
         .state
         .db
-        .lock()
-        .unwrap()
-        .execute_batch("DROP TABLE prompts")
+        .with_sync(|db| {
+            db.conn.execute_batch("DROP TABLE prompts")?;
+            Ok(())
+        })
         .unwrap();
 
     let response = server

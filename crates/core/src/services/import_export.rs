@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::prompt::CreatePromptRequest;
 use crate::services::{prompt_service, transaction};
@@ -81,7 +82,7 @@ fn is_duplicate(conn: &Connection, title: &str, content: &str) -> AppResult<bool
 // JSON import / export
 // ------------------------------------------------------------------
 
-pub fn import_json(conn: &mut Connection, json_str: &str) -> AppResult<ImportResult> {
+pub fn import_json(conn: &mut Db, json_str: &str) -> AppResult<ImportResult> {
     let data = serde_json::from_str::<ImportData>(json_str)
         .map_err(|error| AppError::invalid(format!("Invalid JSON: {error}")))?;
     let mut result = empty_import_result();
@@ -245,11 +246,7 @@ fn parse_yaml_list(s: &str) -> Vec<String> {
 }
 
 /// Import a single markdown file. Returns an ImportResult for that file.
-pub fn import_markdown(
-    conn: &mut Connection,
-    filename: &str,
-    content: &str,
-) -> AppResult<ImportResult> {
+pub fn import_markdown(conn: &mut Db, filename: &str, content: &str) -> AppResult<ImportResult> {
     transaction::immediate(conn, |tx| import_markdown_tx(tx, filename, content))
 }
 
@@ -289,7 +286,7 @@ fn import_markdown_tx(conn: &Connection, filename: &str, content: &str) -> AppRe
 
 /// Import multiple markdown files. Aggregates results from each file.
 pub fn import_markdown_batch(
-    conn: &mut Connection,
+    conn: &mut Db,
     files: Vec<(String, String)>,
 ) -> AppResult<ImportResult> {
     let mut aggregate = empty_import_result();

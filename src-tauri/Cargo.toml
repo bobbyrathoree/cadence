@@ -34,3 +34,7 @@ hex = "0.4"
 dirs = "5"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+
+[[test]]
+name = "lifecycle_matrix"
+required-features = ["test-support"]

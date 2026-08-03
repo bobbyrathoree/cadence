@@ -1,23 +1,21 @@
 use std::collections::BTreeSet;
 
-use cadence_core::db::schema;
+use cadence_core::db::{schema, Db, Health};
 use cadence_core::models::collection::CreateCollectionRequest;
 use cadence_core::models::prompt::{CreatePromptRequest, PromptListItem};
 use cadence_core::services::{collection_service, prompt_service, search_service};
 
-fn setup_db() -> rusqlite::Connection {
+fn setup_db() -> Db {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     schema::create_tables(&conn).unwrap();
-    conn
+    Db {
+        conn,
+        health: Health::exit_process(1),
+    }
 }
 
-fn create_prompt(
-    conn: &mut rusqlite::Connection,
-    title: &str,
-    content: &str,
-    tags: &[&str],
-) -> String {
+fn create_prompt(conn: &mut Db, title: &str, content: &str, tags: &[&str]) -> String {
     prompt_service::create_prompt(
         conn,
         CreatePromptRequest {

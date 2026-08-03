@@ -2,7 +2,7 @@
 ///
 /// Each test creates a fresh in-memory SQLite database with the full schema
 /// applied, then exercises the service layer directly.
-use cadence_core::db::schema;
+use cadence_core::db::{schema, Db, Health};
 use cadence_core::models::collection::CreateCollectionRequest;
 use cadence_core::models::patch::PatchField;
 use cadence_core::models::playbook::{StepSpec, UpdatePlaybookRequest};
@@ -13,16 +13,19 @@ use cadence_core::services::{
 };
 
 /// Create a fresh in-memory database with schema and FKs enabled.
-fn setup_db() -> rusqlite::Connection {
+fn setup_db() -> Db {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
     schema::create_tables(&conn).unwrap();
-    conn
+    Db {
+        conn,
+        health: Health::exit_process(1),
+    }
 }
 
 /// Helper: create a prompt with sensible defaults and return the result.
 fn create_test_prompt(
-    conn: &mut rusqlite::Connection,
+    conn: &mut Db,
     title: &str,
     content: &str,
     tags: Vec<String>,

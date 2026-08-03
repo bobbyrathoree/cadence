@@ -3,10 +3,9 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rand::{rngs::OsRng, RngCore};
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tokio::sync::oneshot;
@@ -16,6 +15,7 @@ use super::server::{self, ApiState};
 use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::services::settings_service;
+use cadence_core::db_access::DbAccess;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ApiStatus {
@@ -38,28 +38,30 @@ struct RunningApi {
 pub struct ApiLifecycle {
     database_path: PathBuf,
     discovery_path: PathBuf,
+    main: DbAccess,
     running: Option<RunningApi>,
     last_bound_port: Option<u16>,
     app_handle: Option<AppHandle>,
 }
 
 impl ApiLifecycle {
-    pub fn new(database_path: PathBuf, discovery_path: PathBuf) -> Self {
+    pub fn new(database_path: PathBuf, discovery_path: PathBuf, main: DbAccess) -> Self {
         Self {
             database_path,
             discovery_path,
+            main,
             running: None,
             last_bound_port: None,
             app_handle: None,
         }
     }
 
-    pub fn for_application(database_path: PathBuf) -> Result<Self, String> {
+    pub fn for_application(database_path: PathBuf, main: DbAccess) -> Result<Self, String> {
         let database_dir = database_path
             .parent()
             .ok_or_else(|| "Cadence database path has no parent directory".to_string())?;
         let discovery_path = database_dir.join("api.json");
-        Ok(Self::new(database_path, discovery_path))
+        Ok(Self::new(database_path, discovery_path, main))
     }
 
     pub fn status(&self) -> ApiStatus {
@@ -77,19 +79,12 @@ impl ApiLifecycle {
         self.app_handle = Some(app_handle);
     }
 
-    pub async fn set_enabled(
-        &mut self,
-        settings_db: &Mutex<Connection>,
-        enabled: bool,
-    ) -> AppResult<ApiStatus> {
+    pub async fn set_enabled(&mut self, enabled: bool) -> AppResult<ApiStatus> {
         if enabled {
             let status = self.start().await?;
-            let persist_result = {
-                let mut conn = settings_db
-                    .lock()
-                    .map_err(|_| AppError::internal("Database lock poisoned"))?;
-                settings_service::set_api_enabled(&mut conn, true)
-            };
+            let persist_result = self
+                .main
+                .with_sync(|db| settings_service::set_api_enabled(db, true));
             if let Err(error) = persist_result {
                 let _ = self.stop().await;
                 return Err(error);
@@ -97,22 +92,17 @@ impl ApiLifecycle {
             Ok(status)
         } else {
             self.stop().await?;
-            let mut conn = settings_db
-                .lock()
-                .map_err(|_| AppError::internal("Database lock poisoned"))?;
-            settings_service::set_api_enabled(&mut conn, false)?;
+            self.main
+                .with_sync(|db| settings_service::set_api_enabled(db, false))?;
             Ok(self.status())
         }
     }
 
-    pub async fn startup(&mut self, settings_db: &Mutex<Connection>) -> AppResult<ApiStatus> {
+    pub async fn startup(&mut self) -> AppResult<ApiStatus> {
         self.remove_discovery_file()?;
-        let enabled = {
-            let conn = settings_db
-                .lock()
-                .map_err(|_| AppError::internal("Database lock poisoned"))?;
-            settings_service::get_api_enabled(&conn)?
-        };
+        let enabled = self
+            .main
+            .with_sync(|db| settings_service::get_api_enabled(&db.conn))?;
         if !enabled {
             return Ok(self.status());
         }
@@ -120,12 +110,9 @@ impl ApiLifecycle {
         match self.start().await {
             Ok(status) => Ok(status),
             Err(error) => {
-                let persist_result = {
-                    let mut conn = settings_db
-                        .lock()
-                        .map_err(|_| AppError::internal("Database lock poisoned"))?;
-                    settings_service::set_api_enabled(&mut conn, false)
-                };
+                let persist_result = self
+                    .main
+                    .with_sync(|db| settings_service::set_api_enabled(db, false));
                 if persist_result.is_err() {
                     return Err(AppError::internal(
                         "API startup and settings recovery both failed",
@@ -145,7 +132,27 @@ impl ApiLifecycle {
             return Ok(self.status());
         }
 
-        let api_connection = db::connect(&self.database_path).map_err(AppError::from)?;
+        let api_database = match db::open_peer(&self.database_path, db::Health::exit_process(1)) {
+            Ok(db::DbOpen::Ready(database)) => database,
+            Ok(db::DbOpen::MissingFile) => {
+                return Err(AppError::invalid("database file missing; restart Cadence"));
+            }
+            Ok(db::DbOpen::NeedsMigration(_, _)) => {
+                return Err(AppError::invalid(
+                    "database schema changed; restart Cadence",
+                ));
+            }
+            Ok(db::DbOpen::SchemaNewer { .. }) => {
+                return Err(AppError::invalid(
+                    "database belongs to a newer Cadence; check your installations",
+                ));
+            }
+            Err(db::DbOpenError::Io(detail))
+            | Err(db::DbOpenError::Corrupt(detail))
+            | Err(db::DbOpenError::Pragma(detail)) => {
+                return Err(AppError::internal(detail));
+            }
+        };
         let key = generate_api_key();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -154,7 +161,7 @@ impl ApiLifecycle {
         self.last_bound_port = Some(port);
 
         let state = Arc::new(ApiState {
-            db: Mutex::new(api_connection),
+            db: DbAccess::new(api_database),
             api_key: key.clone(),
             api_port: port,
             app_handle: self.app_handle.clone(),

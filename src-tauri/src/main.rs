@@ -3,8 +3,8 @@
 mod tray;
 
 use std::process::{self, Command};
-use std::sync::Mutex;
 
+use cadence_core::db_access::DbAccess;
 use tauri::{Emitter, Manager};
 
 use cadence_lib::api::lifecycle::ApiLifecycle;
@@ -80,13 +80,14 @@ fn run() -> Result<(), String> {
     };
 
     // Seed starter content on first launch (no-op if data already exists).
-    if let Err(e) = seed::seed_if_empty(&mut database.conn) {
+    if let Err(e) = seed::seed_if_empty(&mut database) {
         eprintln!("Warning: failed to seed starter kit: {}", e);
     }
 
+    let main = DbAccess::new(database);
     let app_state = AppState {
-        db: Mutex::new(database.conn),
-        api: tokio::sync::Mutex::new(ApiLifecycle::for_application(database_path)?),
+        main: main.clone(),
+        api: tokio::sync::Mutex::new(ApiLifecycle::for_application(database_path, main)?),
     };
 
     let app = tauri::Builder::default()
@@ -152,7 +153,7 @@ fn run() -> Result<(), String> {
                 let state = app.state::<AppState>();
                 let mut api = state.api.lock().await;
                 api.set_app_handle(handle.clone());
-                api.startup(&state.db).await
+                api.startup().await
             });
             if let Err(error) = api_startup {
                 eprintln!("Failed to start the local API: {error}");
@@ -165,24 +166,17 @@ fn run() -> Result<(), String> {
 
                 let shortcut_binding = {
                     let state = app.state::<AppState>();
-                    let resolved = match state.db.lock() {
-                        Ok(conn) => match settings_service::get_keyboard_shortcuts(&conn) {
-                            Ok(shortcuts) => shortcuts
-                                .iter()
-                                .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
-                                .map(|shortcut| shortcut.binding.clone())
-                                .unwrap_or_else(|| DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()),
-                            Err(error) => {
-                                eprintln!(
-                                    "Warning: failed to read global shortcut setting: {error:?}"
-                                );
-                                DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()
-                            }
-                        },
-                        Err(_) => {
-                            eprintln!(
-                                "Warning: database lock unavailable during shortcut registration"
-                            );
+                    let resolved = match state
+                        .main
+                        .with_sync(|db| settings_service::get_keyboard_shortcuts(&db.conn))
+                    {
+                        Ok(shortcuts) => shortcuts
+                            .iter()
+                            .find(|shortcut| shortcut.action == GLOBAL_SEARCH_ACTION)
+                            .map(|shortcut| shortcut.binding.clone())
+                            .unwrap_or_else(|| DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()),
+                        Err(error) => {
+                            eprintln!("Warning: failed to read global shortcut setting: {error:?}");
                             DEFAULT_GLOBAL_SEARCH_SHORTCUT.to_string()
                         }
                     };

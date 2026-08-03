@@ -1,4 +1,4 @@
-use std::sync::{Arc, MutexGuard};
+use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use rusqlite::Connection;
+use cadence_core::db::Db;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::server::ApiState;
@@ -78,38 +78,25 @@ pub fn router() -> Router<Arc<ApiState>> {
         .route("/api/v1/prompts/{id}/copy", post(record_copy))
 }
 
-async fn run_blocking<T, F>(operation: F) -> AppResult<T>
+async fn run_db<T, F>(state: Arc<ApiState>, operation: F) -> AppResult<T>
 where
     T: Send + 'static,
-    F: FnOnce() -> AppResult<T> + Send + 'static,
+    F: FnOnce(&mut Db) -> AppResult<T> + Send + 'static,
 {
-    tokio::task::spawn_blocking(operation)
-        .await
-        .map_err(|error| AppError::internal(format!("Blocking task failed: {error}")))?
+    state.db.with_async(operation).await
 }
 
 async fn run_mutation<T, F>(state: Arc<ApiState>, operation: F) -> AppResult<T>
 where
     T: Send + 'static,
-    F: FnOnce(&mut Connection) -> AppResult<T> + Send + 'static,
+    F: FnOnce(&mut Db) -> AppResult<T> + Send + 'static,
 {
     let operation_state = state.clone();
-    let result = run_blocking(move || {
-        let mut conn = lock_db(&operation_state)?;
-        operation(&mut conn)
-    })
-    .await;
+    let result = run_db(operation_state, operation).await;
     if result.is_ok() {
         state.emit_db_changed();
     }
     result
-}
-
-fn lock_db(state: &ApiState) -> AppResult<MutexGuard<'_, Connection>> {
-    state
-        .db
-        .lock()
-        .map_err(|_| AppError::internal("Database lock poisoned"))
 }
 
 fn json_result<T: Serialize>(result: AppResult<T>) -> Response {
@@ -165,10 +152,9 @@ async fn list_prompts(
     Query(query): Query<ListPromptsQuery>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
+        run_db(state, move |db| {
             prompt_service::list_prompts_page(
-                &conn,
+                &db.conn,
                 query.filter.as_deref(),
                 query.limit,
                 query.offset,
@@ -192,9 +178,8 @@ async fn create_prompt(
 
 async fn get_prompt(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            prompt_service::get_prompt_by_id(&conn, &id)
+        run_db(state, move |db| {
+            prompt_service::get_prompt_by_id(&db.conn, &id)
         })
         .await,
     )
@@ -219,22 +204,15 @@ async fn delete_prompt(State(state): State<Arc<ApiState>>, Path(id): Path<String
 
 async fn get_prompt_usage(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            prompt_service::get_prompt_usage(&conn, &id)
+        run_db(state, move |db| {
+            prompt_service::get_prompt_usage(&db.conn, &id)
         })
         .await,
     )
 }
 
 async fn get_prompt_counts(State(state): State<Arc<ApiState>>) -> Response {
-    json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            prompt_service::get_prompt_counts(&conn)
-        })
-        .await,
-    )
+    json_result(run_db(state, move |db| prompt_service::get_prompt_counts(&db.conn)).await)
 }
 
 #[derive(Deserialize)]
@@ -280,13 +258,7 @@ async fn delete_variant(State(state): State<Arc<ApiState>>, Path(id): Path<Strin
 }
 
 async fn list_tags(State(state): State<Arc<ApiState>>) -> Response {
-    json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            tag_service::list_tags(&conn)
-        })
-        .await,
-    )
+    json_result(run_db(state, move |db| tag_service::list_tags(&db.conn)).await)
 }
 
 async fn create_tag(
@@ -333,9 +305,8 @@ async fn remove_tag_from_prompt(
 
 async fn list_collections(State(state): State<Arc<ApiState>>) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            collection_service::list_collections(&conn)
+        run_db(state, move |db| {
+            collection_service::list_collections(&db.conn)
         })
         .await,
     )
@@ -365,9 +336,13 @@ async fn get_collection_prompts(
     Query(query): Query<PaginationQuery>,
 ) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            collection_service::get_collection_prompts_page(&conn, &id, query.limit, query.offset)
+        run_db(state, move |db| {
+            collection_service::get_collection_prompts_page(
+                &db.conn,
+                &id,
+                query.limit,
+                query.offset,
+            )
         })
         .await,
     )
@@ -414,9 +389,8 @@ async fn search(State(state): State<Arc<ApiState>>, Query(query): Query<SearchQu
         return error_response(AppError::invalid("query too long"));
     }
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            search_service::search_prompts_page(&conn, &query.q, query.limit)
+        run_db(state, move |db| {
+            search_service::search_prompts_page(&db.conn, &query.q, query.limit)
         })
         .await,
     )
@@ -463,9 +437,8 @@ async fn import_prompts(
 
 async fn export_prompts(State(state): State<Arc<ApiState>>) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            let json = import_export::export_json(&conn)?;
+        run_db(state, move |db| {
+            let json = import_export::export_json(&db.conn)?;
             deserialize_internal::<import_export::ExportData>(&json)
         })
         .await,
@@ -478,13 +451,7 @@ fn deserialize_internal<T: DeserializeOwned>(json: &str) -> AppResult<T> {
 }
 
 async fn list_playbooks(State(state): State<Arc<ApiState>>) -> Response {
-    json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            playbook_service::list_playbooks(&conn)
-        })
-        .await,
-    )
+    json_result(run_db(state, move |db| playbook_service::list_playbooks(&db.conn)).await)
 }
 
 #[derive(Deserialize)]
@@ -507,9 +474,8 @@ async fn create_playbook(
 
 async fn get_playbook(State(state): State<Arc<ApiState>>, Path(id): Path<String>) -> Response {
     json_result(
-        run_blocking(move || {
-            let conn = lock_db(&state)?;
-            playbook_service::get_playbook(&conn, &id)
+        run_db(state, move |db| {
+            playbook_service::get_playbook(&db.conn, &id)
         })
         .await,
     )

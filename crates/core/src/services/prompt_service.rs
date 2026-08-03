@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::patch::PatchField;
 use crate::models::prompt::{
@@ -98,11 +99,8 @@ fn next_active_variant_id(
     .map_err(AppError::from)
 }
 
-pub fn create_prompt(
-    conn: &mut Connection,
-    request: CreatePromptRequest,
-) -> AppResult<PromptWithVariants> {
-    transaction::immediate(conn, move |tx| create_prompt_tx(tx, request))
+pub fn create_prompt(conn: &mut Db, request: CreatePromptRequest) -> AppResult<PromptWithVariants> {
+    transaction::immediate(conn, |tx| create_prompt_tx(tx, request.clone()))
 }
 
 pub(crate) fn create_prompt_tx(
@@ -320,12 +318,8 @@ pub fn list_prompts_page(
     Ok(items)
 }
 
-pub fn update_prompt(
-    conn: &mut Connection,
-    id: &str,
-    request: UpdatePromptRequest,
-) -> AppResult<()> {
-    transaction::immediate(conn, |tx| update_prompt_tx(tx, id, request))
+pub fn update_prompt(conn: &mut Db, id: &str, request: UpdatePromptRequest) -> AppResult<()> {
+    transaction::immediate(conn, |tx| update_prompt_tx(tx, id, request.clone()))
 }
 
 pub(crate) fn update_prompt_tx(
@@ -478,15 +472,15 @@ pub fn get_prompt_counts(conn: &Connection) -> AppResult<PromptCounts> {
     .map_err(AppError::from)
 }
 
-pub fn toggle_favorite(conn: &mut Connection, id: &str) -> AppResult<bool> {
+pub fn toggle_favorite(conn: &mut Db, id: &str) -> AppResult<bool> {
     toggle_flag(conn, id, "is_favorite")
 }
 
-pub fn toggle_pinned(conn: &mut Connection, id: &str) -> AppResult<bool> {
+pub fn toggle_pinned(conn: &mut Db, id: &str) -> AppResult<bool> {
     toggle_flag(conn, id, "is_pinned")
 }
 
-fn toggle_flag(conn: &mut Connection, id: &str, column: &str) -> AppResult<bool> {
+fn toggle_flag(conn: &mut Db, id: &str, column: &str) -> AppResult<bool> {
     transaction::immediate(conn, |tx| {
         let select_sql =
             format!("SELECT {column} FROM prompts WHERE id = ?1 AND deleted_at IS NULL");
@@ -511,7 +505,7 @@ fn toggle_flag(conn: &mut Connection, id: &str, column: &str) -> AppResult<bool>
     })
 }
 
-pub fn delete_prompt(conn: &mut Connection, id: &str) -> AppResult<()> {
+pub fn delete_prompt(conn: &mut Db, id: &str) -> AppResult<()> {
     transaction::immediate(conn, |tx| {
         let now = chrono::Utc::now().to_rfc3339();
         let affected = tx
@@ -526,11 +520,7 @@ pub fn delete_prompt(conn: &mut Connection, id: &str) -> AppResult<()> {
     })
 }
 
-pub fn record_copy(
-    conn: &mut Connection,
-    prompt_id: &str,
-    variant_id: Option<&str>,
-) -> AppResult<String> {
+pub fn record_copy(conn: &mut Db, prompt_id: &str, variant_id: Option<&str>) -> AppResult<String> {
     transaction::immediate(conn, |tx| record_copy_tx(tx, prompt_id, variant_id))
 }
 
@@ -585,7 +575,7 @@ pub(crate) fn record_copy_tx(
 }
 
 pub fn add_variant(
-    conn: &mut Connection,
+    conn: &mut Db,
     prompt_id: &str,
     label: &str,
     content: &str,
@@ -643,7 +633,7 @@ pub(crate) fn add_variant_tx(
 }
 
 pub fn update_variant(
-    conn: &mut Connection,
+    conn: &mut Db,
     id: &str,
     content: &str,
     label: Option<&str>,
@@ -695,7 +685,7 @@ fn update_variant_tx(
     update_fts_index_tx(conn, &prompt_id)
 }
 
-pub fn delete_variant(conn: &mut Connection, id: &str) -> AppResult<()> {
+pub fn delete_variant(conn: &mut Db, id: &str) -> AppResult<()> {
     transaction::immediate(conn, |tx| delete_variant_tx(tx, id))
 }
 
