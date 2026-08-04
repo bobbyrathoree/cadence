@@ -61,6 +61,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+      - name: Test baseline checker
+        run: scripts/check-baseline.sh --self-test
       - name: Check baseline
         run: scripts/check-baseline.sh --subset
       - name: Test core support feature

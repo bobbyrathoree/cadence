@@ -7,19 +7,19 @@ use rmcp::model::CallToolRequestParams;
 use rmcp::ServiceExt;
 use serde_json::json;
 
-fn database() -> (Db, Health) {
+fn database() -> Db {
     let (health, _messages) = Health::recording();
     let db = Db {
         conn: rusqlite::Connection::open_in_memory().expect("open in-memory database"),
-        health: health.clone(),
+        health,
     };
     schema::create_tables(&db.conn).expect("create schema");
-    (db, health)
+    db
 }
 
 #[tokio::test]
 async fn reference_echo_title_round_trips_through_real_serve() {
-    let (mut db, health) = database();
+    let mut db = database();
     let prompt = prompt_service::create_prompt(
         &mut db,
         CreatePromptRequest {
@@ -34,7 +34,7 @@ async fn reference_echo_title_round_trips_through_real_serve() {
     .expect("create prompt");
     let prompt_id = prompt.prompt.id;
     enable_query_only(&mut db).expect("enable query-only mode");
-    let server = CadenceMcp::with_reference_router(DbAccess::new(db), health);
+    let server = CadenceMcp::with_reference_router(DbAccess::new(db));
     let (server_transport, client_transport) = tokio::io::duplex(4096);
 
     let server_task = tokio::spawn(async move {
@@ -67,9 +67,9 @@ async fn reference_echo_title_round_trips_through_real_serve() {
 
 #[tokio::test]
 async fn production_server_lists_exactly_nine_tools() {
-    let (mut db, health) = database();
+    let mut db = database();
     enable_query_only(&mut db).expect("enable query-only mode");
-    let server = CadenceMcp::for_test(DbAccess::new(db), health, true);
+    let server = CadenceMcp::for_test(DbAccess::new(db), true);
     let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
 
     let server_task = tokio::spawn(async move {
@@ -104,6 +104,61 @@ async fn production_server_lists_exactly_nine_tools() {
             "update_prompt_content",
         ]
     );
+    client.cancel().await.expect("cancel client");
+    server_task.await.expect("join server task");
+}
+
+#[tokio::test]
+async fn record_copy_restores_query_only_after_the_tool_write() {
+    let mut db = database();
+    let prompt = prompt_service::create_prompt(
+        &mut db,
+        CreatePromptRequest {
+            title: "Copy prompt".to_string(),
+            description: None,
+            content: "Copy content".to_string(),
+            variant_label: None,
+            tags: Vec::new(),
+            is_favorite: false,
+        },
+    )
+    .expect("create prompt");
+    let prompt_id = prompt.prompt.id;
+    enable_query_only(&mut db).expect("enable query-only mode");
+    let access = DbAccess::new(db);
+    let server = CadenceMcp::for_test(access.clone(), false);
+    let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
+
+    let server_task = tokio::spawn(async move {
+        server
+            .serve(server_transport)
+            .await
+            .expect("serve production server")
+            .waiting()
+            .await
+            .expect("wait for production server");
+    });
+    let client = ().serve(client_transport).await.expect("connect client");
+    let mut arguments = serde_json::Map::new();
+    arguments.insert("prompt_id".to_string(), json!(prompt_id));
+    arguments.insert("variant_id".to_string(), serde_json::Value::Null);
+    let result = client
+        .call_tool(CallToolRequestParams::new("record_copy").with_arguments(arguments))
+        .await
+        .expect("call record_copy");
+    assert_eq!(
+        result.structured_content,
+        Some(json!({ "content": "Copy content" }))
+    );
+    assert!(access
+        .with_async(|db| {
+            db.conn
+                .pragma_query_value(None, "query_only", |row| row.get::<_, bool>(0))
+                .map_err(cadence_core::error::AppError::from)
+        })
+        .await
+        .expect("read query-only pragma"));
+
     client.cancel().await.expect("cancel client");
     server_task.await.expect("join server task");
 }

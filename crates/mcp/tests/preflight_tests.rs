@@ -196,8 +196,7 @@ fn query_only_is_enabled_and_server_metadata_is_pinned() {
     let temp = TempDir::new("query-only");
     let path = temp.database();
     drop(create_database(&path, CURRENT_SCHEMA_VERSION, true));
-    let health = Health::exit_process(10);
-    let mut db = match open_peer(&path, health.clone()).expect("open peer database") {
+    let mut db = match open_peer(&path, Health::exit_process(10)).expect("open peer database") {
         DbOpen::Ready(db) => db,
         _ => panic!("current WAL database must be ready"),
     };
@@ -209,7 +208,7 @@ fn query_only_is_enabled_and_server_metadata_is_pinned() {
         .expect("read query-only mode");
     assert_eq!(query_only, 1);
 
-    let state = McpState::new(DbAccess::new(db), health);
+    let state = McpState::new(DbAccess::new(db));
     let info = state.get_info();
     assert_eq!(info.server_info.name, "cadence-mcp");
     assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));

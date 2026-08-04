@@ -3,11 +3,13 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use cadence_core::db::{schema, CURRENT_SCHEMA_VERSION};
+use cadence_core::db::{schema, Db, Health, CURRENT_SCHEMA_VERSION};
+use cadence_core::models::prompt::CreatePromptRequest;
+use cadence_core::services::prompt_service;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
@@ -1086,4 +1088,407 @@ fn prompt_count(path: &Path) -> i64 {
         .expect("open database for count")
         .query_row("SELECT COUNT(*) FROM prompts", [], |row| row.get(0))
         .expect("count prompts")
+}
+
+fn structured(response: &Value) -> &Value {
+    assert!(response.get("error").is_none(), "{response}");
+    assert_eq!(response["result"]["isError"], false, "{response}");
+    &response["result"]["structuredContent"]
+}
+
+#[test]
+fn record_copy_returns_content_and_persists_usage() {
+    let temp = TempDir::new("record-copy");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, true);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let response = client.tool_call(
+        "record_copy",
+        json!({ "prompt_id": FIXTURE_PROMPT_ID, "variant_id": null }),
+    );
+    assert_eq!(
+        structured(&response),
+        &json!({ "content": "Fixture content" })
+    );
+
+    let conn = Connection::open(&database).expect("inspect record-copy fixture");
+    assert_eq!(
+        conn.query_row(
+            "SELECT copy_count FROM prompts WHERE id = ?1",
+            [FIXTURE_PROMPT_ID],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("read copy count"),
+        1
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM copy_history
+             WHERE prompt_id = ?1 AND variant_id = ?2",
+            params![FIXTURE_PROMPT_ID, FIXTURE_VARIANT_ID],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("count copy history"),
+        1
+    );
+}
+
+#[test]
+fn update_prompt_content_targets_primary_and_explicit_variants() {
+    let temp = TempDir::new("update-content");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, true);
+    let alternate_id = "22222222-2222-4222-8222-222222222223";
+    Connection::open(&database)
+        .expect("open update fixture")
+        .execute(
+            "INSERT INTO variants
+                (id, prompt_id, label, content, content_type, sort_order)
+             VALUES (?1, ?2, 'Alternate', 'Alternate content', 'static', 1)",
+            params![alternate_id, FIXTURE_PROMPT_ID],
+        )
+        .expect("insert alternate variant");
+    let mut client = WireClient::spawn(&database, true);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let primary = client.tool_call(
+        "update_prompt_content",
+        json!({
+            "prompt_id": FIXTURE_PROMPT_ID,
+            "variant_id": null,
+            "content": "Primary replacement"
+        }),
+    );
+    let primary_variants = structured(&primary)["variants"]
+        .as_array()
+        .expect("primary update variants");
+    assert!(primary_variants.iter().any(|variant| {
+        variant["id"] == FIXTURE_VARIANT_ID
+            && variant["content"] == "Primary replacement"
+            && variant["is_primary"] == true
+    }));
+
+    let alternate = client.tool_call(
+        "update_prompt_content",
+        json!({
+            "prompt_id": FIXTURE_PROMPT_ID,
+            "variant_id": alternate_id,
+            "content": "Alternate replacement"
+        }),
+    );
+    let alternate_variants = structured(&alternate)["variants"]
+        .as_array()
+        .expect("explicit update variants");
+    assert!(alternate_variants.iter().any(|variant| {
+        variant["id"] == alternate_id
+            && variant["content"] == "Alternate replacement"
+            && variant["is_primary"] == false
+    }));
+}
+
+#[test]
+fn list_prompts_enforces_page_boundaries_clamps_and_validation() {
+    let temp = TempDir::new("list-prompts");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, false);
+    let conn = Connection::open(&database).expect("open list fixture");
+    for index in 0..101_u32 {
+        insert_prompt(
+            &conn,
+            &format!("80000000-0000-4000-8000-{index:012x}"),
+            &format!("81000000-0000-4000-8000-{index:012x}"),
+            &format!("Prompt {index:03}"),
+            None,
+            "content",
+            "Primary",
+            index % 2 == 0,
+            false,
+        );
+    }
+    drop(conn);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let limit_plus_one = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "all", "limit": 2, "offset": 98 }),
+    );
+    assert_eq!(
+        structured(&limit_plus_one)["prompts"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(structured(&limit_plus_one)["next_offset"], 100);
+
+    let exact_limit = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "all", "limit": 2, "offset": 99 }),
+    );
+    assert_eq!(
+        structured(&exact_limit)["prompts"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(structured(&exact_limit)["next_offset"], Value::Null);
+
+    let clamped_page = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "all", "limit": 101, "offset": 0 }),
+    );
+    assert_eq!(
+        structured(&clamped_page)["prompts"]
+            .as_array()
+            .map(Vec::len),
+        Some(100)
+    );
+    assert_eq!(structured(&clamped_page)["next_offset"], 100);
+
+    let last_page = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "all", "limit": 100, "offset": 1 }),
+    );
+    assert_eq!(
+        structured(&last_page)["prompts"].as_array().map(Vec::len),
+        Some(100)
+    );
+    assert_eq!(structured(&last_page)["next_offset"], Value::Null);
+
+    let clamped_low = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "favorites", "limit": 0, "offset": 0 }),
+    );
+    assert_eq!(
+        structured(&clamped_low)["prompts"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(structured(&clamped_low)["next_offset"], 1);
+
+    let clamped_high = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "all", "limit": 500, "offset": 0 }),
+    );
+    assert_eq!(
+        structured(&clamped_high)["prompts"]
+            .as_array()
+            .map(Vec::len),
+        Some(100)
+    );
+    assert_eq!(structured(&clamped_high)["next_offset"], 100);
+
+    let overflow = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "all", "limit": 1, "offset": u32::MAX }),
+    );
+    assert_eq!(overflow["result"]["isError"], true);
+    assert_eq!(
+        overflow["result"]["content"][0]["text"],
+        "offset plus limit is too large"
+    );
+
+    let bogus = client.tool_call(
+        "list_prompts",
+        json!({ "filter": "bogus", "limit": 10, "offset": 0 }),
+    );
+    assert_eq!(bogus["result"]["isError"], true);
+    assert_eq!(
+        bogus["result"]["content"][0]["text"],
+        "filter must be one of: all, favorites, recent"
+    );
+}
+
+#[test]
+fn search_prompts_returns_success_shape_and_paginates() {
+    let temp = TempDir::new("search-prompts");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, false);
+    let conn = Connection::open(&database).expect("open search fixture");
+    let mut db = Db {
+        conn,
+        health: Health::recording().0,
+    };
+    for index in 0..3 {
+        prompt_service::create_prompt(
+            &mut db,
+            CreatePromptRequest {
+                title: format!("Search {index}"),
+                description: None,
+                content: format!("shared needle content {index}"),
+                variant_label: None,
+                tags: Vec::new(),
+                is_favorite: false,
+            },
+        )
+        .expect("create searchable prompt");
+    }
+    drop(db);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let response = client.tool_call(
+        "search_prompts",
+        json!({ "query": "shared needle", "limit": 2, "offset": 0 }),
+    );
+    let page = structured(&response);
+    assert_eq!(page["prompts"].as_array().map(Vec::len), Some(2));
+    assert_eq!(page["next_offset"], 2);
+    assert!(page["prompts"]
+        .as_array()
+        .expect("search rows")
+        .iter()
+        .all(|prompt| prompt["snippet"]
+            .as_str()
+            .is_some_and(|snippet| snippet.contains("shared needle"))));
+}
+
+#[test]
+fn list_playbooks_returns_ordered_success_shape() {
+    let temp = TempDir::new("list-playbooks");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, false);
+    Connection::open(&database)
+        .expect("open playbook fixture")
+        .execute_batch(
+            "INSERT INTO playbooks (id, title, description) VALUES
+                ('playbook-b', 'Beta', NULL),
+                ('playbook-a', 'Alpha', 'description');
+             INSERT INTO playbook_steps
+                (id, playbook_id, position, step_type)
+             VALUES
+                ('step-1', 'playbook-b', 0, 'single'),
+                ('step-2', 'playbook-b', 1, 'single');",
+        )
+        .expect("insert playbook fixtures");
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let response = client.tool_call("list_playbooks", json!({}));
+    assert_eq!(
+        structured(&response),
+        &json!({
+            "playbooks": [
+                {
+                    "id": "playbook-a",
+                    "title": "Alpha",
+                    "description": "description",
+                    "step_count": 0
+                },
+                {
+                    "id": "playbook-b",
+                    "title": "Beta",
+                    "description": null,
+                    "step_count": 2
+                }
+            ]
+        })
+    );
+}
+
+#[test]
+fn list_tags_returns_ordered_success_shape_with_live_counts() {
+    let temp = TempDir::new("list-tags");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, true);
+    let conn = Connection::open(&database).expect("open tag fixture");
+    conn.execute_batch(
+        "INSERT INTO tags (id, name, color) VALUES
+            ('tag-z', 'Zulu', NULL),
+            ('tag-a', 'Alpha', '#fff');",
+    )
+    .expect("insert tags");
+    conn.execute(
+        "INSERT INTO prompt_tags (prompt_id, tag_id) VALUES
+            (?1, 'tag-a'), (?1, 'tag-z')",
+        [FIXTURE_PROMPT_ID],
+    )
+    .expect("attach tags");
+    drop(conn);
+    let mut client = WireClient::spawn(&database, false);
+    assert_handshake(&client.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let response = client.tool_call("list_tags", json!({}));
+    assert_eq!(
+        structured(&response),
+        &json!({
+            "tags": [
+                { "name": "Alpha", "color": "#fff", "prompt_count": 1 },
+                { "name": "Zulu", "color": null, "prompt_count": 1 }
+            ]
+        })
+    );
+}
+
+#[test]
+fn two_children_complete_concurrent_writes_without_busy_errors() {
+    let temp = TempDir::new("two-children");
+    let database = temp.database("fixture.db");
+    create_fixture(&database, true);
+    let mut first = WireClient::spawn(&database, false);
+    let mut second = WireClient::spawn(&database, false);
+    assert_handshake(&first.initialize(CURRENT_VERSION), CURRENT_VERSION);
+    assert_handshake(&second.initialize(CURRENT_VERSION), CURRENT_VERSION);
+
+    let lock = Connection::open(&database).expect("open contention lock");
+    lock.execute_batch("BEGIN IMMEDIATE")
+        .expect("hold external write lock");
+    let start = Arc::new(Barrier::new(3));
+    let (first_result, second_result) = std::thread::scope(|scope| {
+        let first_start = start.clone();
+        let first_client = &mut first;
+        let first_call = scope.spawn(move || {
+            first_start.wait();
+            first_client.tool_call(
+                "record_copy",
+                json!({ "prompt_id": FIXTURE_PROMPT_ID, "variant_id": null }),
+            )
+        });
+        let second_start = start.clone();
+        let second_client = &mut second;
+        let second_call = scope.spawn(move || {
+            second_start.wait();
+            second_client.tool_call(
+                "record_copy",
+                json!({ "prompt_id": FIXTURE_PROMPT_ID, "variant_id": null }),
+            )
+        });
+        start.wait();
+        std::thread::sleep(Duration::from_millis(5_500));
+        lock.execute_batch("COMMIT")
+            .expect("release external write lock");
+        (
+            first_call.join().expect("join first MCP write"),
+            second_call.join().expect("join second MCP write"),
+        )
+    });
+
+    assert_eq!(
+        structured(&first_result),
+        &json!({ "content": "Fixture content" })
+    );
+    assert_eq!(
+        structured(&second_result),
+        &json!({ "content": "Fixture content" })
+    );
+    drop(first);
+    drop(second);
+    let conn = Connection::open(&database).expect("inspect concurrent writes");
+    assert_eq!(
+        conn.query_row(
+            "SELECT copy_count FROM prompts WHERE id = ?1",
+            [FIXTURE_PROMPT_ID],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("read concurrent copy count"),
+        2
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM copy_history WHERE prompt_id = ?1",
+            [FIXTURE_PROMPT_ID],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("count concurrent history"),
+        2
+    );
 }

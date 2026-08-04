@@ -1,9 +1,8 @@
 use std::borrow::Cow;
 
-use cadence_core::db::{Db, Health};
+use cadence_core::db::Db;
 use cadence_core::db_access::DbAccess;
 use cadence_core::error::{AppError, AppResult};
-use cadence_core::services::transaction::UNRECOVERABLE_DB_MSG;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::model::{
     CacheScope, CompleteRequestParams, CompleteResult, CompletionInfo, GetPromptRequestParams,
@@ -25,44 +24,38 @@ pub const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] =
 #[derive(Clone)]
 pub struct CadenceMcp {
     db: DbAccess,
-    health: Health,
     tool_router: ToolRouter<Self>,
 }
 
 pub type McpState = CadenceMcp;
 
 impl CadenceMcp {
-    pub fn new(db: DbAccess, health: Health) -> Self {
+    pub fn new(db: DbAccess) -> Self {
         Self::build(
             db,
-            health,
             std::env::var("CADENCE_MCP_ALLOW_WRITES").as_deref() == Ok("1"),
         )
     }
 
-    fn build(db: DbAccess, health: Health, allow_writes: bool) -> Self {
+    fn build(db: DbAccess, allow_writes: bool) -> Self {
         let mut tool_router = Self::production_tool_router();
         if !allow_writes {
             tool_router.remove_route("create_prompt");
             tool_router.remove_route("update_prompt_content");
         }
-        Self {
-            db,
-            health,
-            tool_router,
-        }
+        Self { db, tool_router }
     }
 
     #[cfg(feature = "test-support")]
-    pub fn with_reference_router(db: DbAccess, health: Health) -> Self {
-        let mut server = Self::new(db, health);
+    pub fn with_reference_router(db: DbAccess) -> Self {
+        let mut server = Self::new(db);
         server.tool_router.merge(Self::reference_tool_router());
         server
     }
 
     #[cfg(feature = "test-support")]
-    pub fn for_test(db: DbAccess, health: Health, allow_writes: bool) -> Self {
-        Self::build(db, health, allow_writes)
+    pub fn for_test(db: DbAccess, allow_writes: bool) -> Self {
+        Self::build(db, allow_writes)
     }
 
     pub async fn blocking_db<T, F>(&self, operation: F) -> AppResult<T>
@@ -70,27 +63,7 @@ impl CadenceMcp {
         T: Send + 'static,
         F: FnOnce(&mut Db) -> AppResult<T> + Send + 'static,
     {
-        if self.health.is_poisoned() {
-            return Err(AppError::internal(UNRECOVERABLE_DB_MSG));
-        }
-
-        let health = self.health.clone();
-        self.db
-            .with_async(move |db| {
-                if health.is_poisoned() {
-                    return Err(AppError::internal(UNRECOVERABLE_DB_MSG));
-                }
-                operation(db)
-            })
-            .await
-    }
-
-    fn ensure_healthy(&self) -> AppResult<()> {
-        if self.health.is_poisoned() {
-            Err(AppError::internal(UNRECOVERABLE_DB_MSG))
-        } else {
-            Ok(())
-        }
+        self.db.with_async(operation).await
     }
 }
 
@@ -121,7 +94,6 @@ impl ServerHandler for CadenceMcp {
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         Ok(rmcp::model::ListToolsResult {
             result_type: Some(rmcp::model::ResultType::COMPLETE),
             tools: self.tool_router.list_all(),
@@ -137,7 +109,6 @@ impl ServerHandler for CadenceMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<ListPromptsResult, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         let prompts = self
             .blocking_db(prompts::list)
             .await
@@ -152,7 +123,6 @@ impl ServerHandler for CadenceMcp {
         request: GetPromptRequestParams,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<GetPromptResponse, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         let result = self
             .blocking_db(move |db| prompts::get(db, &request.name, request.arguments))
             .await
@@ -165,7 +135,6 @@ impl ServerHandler for CadenceMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<ListResourcesResult, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         let resources = self
             .blocking_db(resources::list)
             .await
@@ -180,7 +149,6 @@ impl ServerHandler for CadenceMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<ListResourceTemplatesResult, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         Ok(
             ListResourceTemplatesResult::with_all_items(resources::templates())
                 .with_ttl_ms(0)
@@ -193,7 +161,6 @@ impl ServerHandler for CadenceMcp {
         request: ReadResourceRequestParams,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<ReadResourceResponse, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         let uri = request.uri;
         let id = resources::parse_uri(&uri).ok_or_else(|| {
             rmcp::ErrorData::invalid_params(format!("unknown resource: {uri}"), None)
@@ -214,7 +181,6 @@ impl ServerHandler for CadenceMcp {
         request: CompleteRequestParams,
         _context: RequestContext<rmcp::RoleServer>,
     ) -> Result<CompleteResult, rmcp::ErrorData> {
-        self.ensure_healthy().map_err(protocol_error)?;
         let template = match request.r#ref {
             Reference::Resource(reference) => reference.uri,
             _ => {

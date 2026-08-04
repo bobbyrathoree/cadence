@@ -71,8 +71,7 @@ async fn run_server() -> i32 {
         }
     };
 
-    let health = Health::exit_process(10);
-    let mut db = match open_peer(&path, health.clone()) {
+    let mut db = match open_peer(&path, Health::exit_process(10)) {
         Ok(DbOpen::Ready(db)) => db,
         Ok(other) => {
             let (code, message) = open_state_failure(&path, other);
@@ -91,7 +90,7 @@ async fn run_server() -> i32 {
         return 8;
     }
 
-    let state = McpState::new(cadence_core::db_access::DbAccess::new(db), health);
+    let state = McpState::new(cadence_core::db_access::DbAccess::new(db));
     match state.serve(stdio()).await {
         Ok(service) => match service.waiting().await {
             Ok(_) => 0,

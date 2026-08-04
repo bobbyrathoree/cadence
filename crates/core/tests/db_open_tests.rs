@@ -384,3 +384,17 @@ fn peer_never_creates_database_file_or_parent() {
     assert!(!path.exists());
     assert!(!temp.path.join("absent").exists());
 }
+
+#[test]
+fn busy_during_pragma_is_classified_as_pragma_for_both_openers() {
+    for opener in [Opener::App, Opener::Peer] {
+        let temp = TempDir::new("pragma-busy");
+        create_database(&temp.database(), CURRENT_SCHEMA_VERSION, true, false);
+        let holder = Connection::open(temp.database()).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+
+        assert_eq!(outcome(open(opener, &temp.database())), Outcome::Pragma);
+
+        holder.execute_batch("ROLLBACK").unwrap();
+    }
+}

@@ -78,7 +78,10 @@ export function PromptDetail({ promptId }: Props) {
   } = usePromptDetail(promptId, refreshCounter);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [activeCopy, setActiveCopy] = useState<CopyOperation | null>(null);
-  const [fillCopy, setFillCopy] = useState<CopyOperation | null>(null);
+  const [fillCopy, setFillCopy] = useState<{
+    operation: CopyOperation;
+    content: string;
+  } | null>(null);
   const copyRef = useRef<CopyOperation | null>(null);
   const liveRef = useRef(true);
 
@@ -157,7 +160,9 @@ export function PromptDetail({ promptId }: Props) {
     });
     copyRef.current = operation;
     setActiveCopy(operation);
-    if (operation.fill) setFillCopy(operation);
+    if (operation.fill) {
+      setFillCopy({ operation, content: selectedVariant.content });
+    }
 
     void operation.settled.then((result) => {
       if (!canApplyCopyEffect(copyRef.current, operation.key, liveRef.current)) {
@@ -726,17 +731,17 @@ export function PromptDetail({ promptId }: Props) {
           </button>
         </div>
       </Modal>
-      {fillCopy?.fill && selectedVariant && (
+      {fillCopy?.operation.fill && (
         <FillVariablesModal
           id="fill-prompt-variables"
-          content={selectedVariant.content}
-          names={fillCopy.fill.names}
+          content={fillCopy.content}
+          names={fillCopy.operation.fill.names}
           onConfirm={(values) => {
-            fillCopy.fill?.resume(values);
+            fillCopy.operation.fill?.resume(values);
             setFillCopy(null);
           }}
           onCancel={() => {
-            fillCopy.fill?.cancel();
+            fillCopy.operation.fill?.cancel();
             setFillCopy(null);
           }}
         />

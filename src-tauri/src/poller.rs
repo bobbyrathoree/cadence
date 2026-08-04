@@ -68,6 +68,10 @@ pub trait DataVersionReader {
     fn read(&self) -> Result<i64, String>;
 }
 
+pub trait WarningSink {
+    fn warn(&self, message: &str);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PollerOutcome {
     ClockStopped,
@@ -77,30 +81,32 @@ pub enum PollerOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PollerReport {
     pub outcome: PollerOutcome,
-    pub warning_count: usize,
 }
 
-pub struct PollerDriver<V, E, C, R> {
+pub struct PollerDriver<V, E, C, R, W> {
     visibility: V,
     emitter: E,
     clock: C,
     reader: R,
+    warnings: W,
     state: PollerState,
 }
 
-impl<V, E, C, R> PollerDriver<V, E, C, R>
+impl<V, E, C, R, W> PollerDriver<V, E, C, R, W>
 where
     V: Visibility,
     E: Emitter,
     C: Clock,
     R: DataVersionReader,
+    W: WarningSink,
 {
-    pub fn new(visibility: V, emitter: E, clock: C, reader: R, baseline: i64) -> Self {
+    pub fn new(visibility: V, emitter: E, clock: C, reader: R, warnings: W, baseline: i64) -> Self {
         Self {
             visibility,
             emitter,
             clock,
             reader,
+            warnings,
             state: PollerState::new(baseline),
         }
     }
@@ -118,12 +124,11 @@ where
                     eprintln!("Database change poll error: {error}");
                     let _ = self.state.tick(true, None);
                     if self.state.read_failures_exhausted() {
-                        eprintln!(
-                            "Warning: database change poller stopped after three consecutive read failures"
+                        self.warnings.warn(
+                            "database change poller stopped after three consecutive read failures",
                         );
                         return PollerReport {
                             outcome: PollerOutcome::ReadFailures,
-                            warning_count: 1,
                         };
                     }
                     continue;
@@ -141,7 +146,6 @@ where
 
         PollerReport {
             outcome: PollerOutcome::ClockStopped,
-            warning_count: 0,
         }
     }
 }
@@ -257,6 +261,14 @@ impl Clock for TokioClock {
     }
 }
 
+struct StderrWarningSink;
+
+impl WarningSink for StderrWarningSink {
+    fn warn(&self, message: &str) {
+        eprintln!("Warning: {message}");
+    }
+}
+
 pub fn start(app: tauri::AppHandle, database_path: &Path) -> Result<(), String> {
     let reader = ProductionDataVersionReader::open(database_path)?;
     let baseline = reader.read()?;
@@ -265,6 +277,7 @@ pub fn start(app: tauri::AppHandle, database_path: &Path) -> Result<(), String> 
         TauriEmitter { app },
         TokioClock,
         reader,
+        StderrWarningSink,
         baseline,
     );
     tauri::async_runtime::spawn(async move {
@@ -366,6 +379,25 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct RecordingWarningSink(Arc<AtomicUsize>);
+
+    impl RecordingWarningSink {
+        fn count(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    impl WarningSink for RecordingWarningSink {
+        fn warn(&self, message: &str) {
+            assert_eq!(
+                message,
+                "database change poller stopped after three consecutive read failures"
+            );
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
     impl Emitter for RecordingEmitter {
         fn emit(&self, event: Emit) -> Result<(), String> {
             assert_eq!(event, Emit::DbChanged);
@@ -444,27 +476,40 @@ mod tests {
         }
     }
 
+    type TestPollerDriver = PollerDriver<
+        FixedVisibility,
+        RecordingEmitter,
+        FiniteClock,
+        CountingScriptedReader,
+        RecordingWarningSink,
+    >;
+
+    struct DriverFixture {
+        driver: TestPollerDriver,
+        reads: Arc<AtomicUsize>,
+        clock_ticks: Arc<AtomicUsize>,
+        warnings: RecordingWarningSink,
+    }
+
     fn driver(
         path: &Path,
         visible: FixedVisibility,
         emitter: RecordingEmitter,
         ticks: usize,
         failures: impl IntoIterator<Item = bool>,
-    ) -> (
-        PollerDriver<FixedVisibility, RecordingEmitter, FiniteClock, CountingScriptedReader>,
-        Arc<AtomicUsize>,
-        Arc<AtomicUsize>,
-    ) {
+    ) -> DriverFixture {
         let production =
             ProductionDataVersionReader::open(path).expect("open production poller reader");
         let baseline = production.read().expect("read poller baseline");
         let (reader, reads) = CountingScriptedReader::new(production, failures);
         let (clock, clock_ticks) = FiniteClock::new(ticks);
-        (
-            PollerDriver::new(visible, emitter, clock, reader, baseline),
+        let warnings = RecordingWarningSink::default();
+        DriverFixture {
+            driver: PollerDriver::new(visible, emitter, clock, reader, warnings.clone(), baseline),
             reads,
             clock_ticks,
-        )
+            warnings,
+        }
     }
 
     #[test]
@@ -499,14 +544,14 @@ mod tests {
         let fixture = TempDatabase::new();
         let visible = FixedVisibility::new(true);
         let emitter = RecordingEmitter::default();
-        let (driver, reads, clock_ticks) = driver(&fixture.path, visible, emitter.clone(), 1, []);
+        let fixture_driver = driver(&fixture.path, visible, emitter.clone(), 1, []);
         fixture.commit(1);
 
-        let report = driver.run().await;
+        let report = fixture_driver.driver.run().await;
 
         assert_eq!(report.outcome, PollerOutcome::ClockStopped);
-        assert_eq!(clock_ticks.load(Ordering::SeqCst), 1);
-        assert_eq!(reads.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture_driver.clock_ticks.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture_driver.reads.load(Ordering::SeqCst), 1);
         assert_eq!(emitter.count(), 1);
     }
 
@@ -515,12 +560,12 @@ mod tests {
         let fixture = TempDatabase::new();
         let visible = FixedVisibility::new(false);
         let emitter = RecordingEmitter::default();
-        let (driver, reads, _) = driver(&fixture.path, visible, emitter.clone(), 3, []);
+        let fixture_driver = driver(&fixture.path, visible, emitter.clone(), 3, []);
 
-        let report = driver.run().await;
+        let report = fixture_driver.driver.run().await;
 
         assert_eq!(report.outcome, PollerOutcome::ClockStopped);
-        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture_driver.reads.load(Ordering::SeqCst), 0);
         assert_eq!(emitter.count(), 0);
     }
 
@@ -539,6 +584,7 @@ mod tests {
             emitter.clone(),
             clock,
             reader,
+            RecordingWarningSink::default(),
             baseline,
         );
 
@@ -553,11 +599,11 @@ mod tests {
         let fixture = TempDatabase::new();
         let visible = FixedVisibility::new(true);
         let emitter = RecordingEmitter::default();
-        let (driver, reads, _) = driver(&fixture.path, visible, emitter.clone(), 2, []);
+        let fixture_driver = driver(&fixture.path, visible, emitter.clone(), 2, []);
 
-        driver.run().await;
+        fixture_driver.driver.run().await;
 
-        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture_driver.reads.load(Ordering::SeqCst), 2);
         assert_eq!(emitter.count(), 0);
     }
 
@@ -566,13 +612,13 @@ mod tests {
         let fixture = TempDatabase::new();
         let visible = FixedVisibility::new(true);
         let emitter = RecordingEmitter::default();
-        let (driver, reads, _) = driver(&fixture.path, visible, emitter.clone(), 2, [true, false]);
+        let fixture_driver = driver(&fixture.path, visible, emitter.clone(), 2, [true, false]);
         fixture.commit(1);
 
-        let report = driver.run().await;
+        let report = fixture_driver.driver.run().await;
 
         assert_eq!(report.outcome, PollerOutcome::ClockStopped);
-        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture_driver.reads.load(Ordering::SeqCst), 2);
         assert_eq!(emitter.count(), 1);
     }
 
@@ -581,7 +627,7 @@ mod tests {
         let fixture = TempDatabase::new();
         let visible = FixedVisibility::new(true);
         let emitter = RecordingEmitter::default();
-        let (driver, reads, _) = driver(
+        let fixture_driver = driver(
             &fixture.path,
             visible,
             emitter.clone(),
@@ -589,11 +635,11 @@ mod tests {
             [true, true, true],
         );
 
-        let report = driver.run().await;
+        let report = fixture_driver.driver.run().await;
 
         assert_eq!(report.outcome, PollerOutcome::ReadFailures);
-        assert_eq!(report.warning_count, 1);
-        assert_eq!(reads.load(Ordering::SeqCst), 3);
+        assert_eq!(fixture_driver.warnings.count(), 1);
+        assert_eq!(fixture_driver.reads.load(Ordering::SeqCst), 3);
         assert_eq!(emitter.count(), 0);
     }
 }
